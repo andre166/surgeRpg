@@ -1,0 +1,82 @@
+{
+  "name": "surge-rpg",
+  "productName": "Surge RPG",
+  "version": "0.1.0",
+  "description": "A 2D incremental RPG for desktop: short runs, explosive level growth, permanent gear.",
+  "private": true,
+  "type": "module",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "dev": "vite",
+    "dev:sandbox": "vite --mode sandbox",
+    "dev:electron": "concurrently -k \"vite\" \"wait-on http://localhost:8000 && cross-env VITE_DEV_SERVER_URL=http://localhost:8000 electron .\"",
+    "dev:electron:sandbox": "concurrently -k \"vite --mode sandbox\" \"wait-on http://localhost:8000 && cross-env VITE_DEV_SERVER_URL=http://localhost:8000 electron .\"",
+    "dev:electron:mobile": "concurrently -k \"vite\" \"wait-on http://localhost:8000 && cross-env VITE_DEV_SERVER_URL=http://localhost:8000 SURGE_WINDOW=390x844 electron .\"",
+    "dev:electron:mobile:sandbox": "concurrently -k \"vite --mode sandbox\" \"wait-on http://localhost:8000 && cross-env VITE_DEV_SERVER_URL=http://localhost:8000 SURGE_WINDOW=390x844 electron .\"",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "build": "vite build",
+    "build:sandbox": "vite build --mode sandbox",
+    "preview": "vite preview",
+    "dist:win": "npm run build && electron-builder --win --x64",
+    "smoke": "cross-env VITE_DEV_SERVER_URL=http://localhost:8000 electron scripts/smoke.cjs",
+    "build:data": "node scripts/build-data.mjs",
+    "build:armor-icons": "node scripts/build-armor-icons.mjs"
+  },
+  "dependencies": {
+    "@fontsource/pixelify-sans": "^5.3.0",
+    "phaser": "^3.90.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "zustand": "^5.0.3"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "concurrently": "^9.1.2",
+    "cross-env": "^7.0.3",
+    "electron": "^33.2.1",
+    "electron-builder": "^25.1.8",
+    "vite": "^6.0.7",
+    "vitest": "^2.1.8",
+    "wait-on": "^8.0.1"
+  },
+  "build": {
+    "appId": "com.surgerpg.game",
+    "productName": "Surge RPG",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**",
+      "electron/**",
+      "package.json"
+    ],
+    "asar": true,
+    "win": {
+      "target": [
+        {
+          "target": "dir",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "${productName}-${version}-win-${arch}.${ext}",
+      "signAndEditExecutable": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "perMachine": false
+    },
+    "extraMetadata": {
+      "main": "electron/main.cjs"
+    }
+  }
+}

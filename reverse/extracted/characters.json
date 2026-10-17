@@ -1,0 +1,58 @@
+{
+  "_source": "reverse/decomp/scripts: Class/GData.as (NewGame 366-440, SBitLoad_KrakutaPower 448-507, EqStUpdate 740-761, lvupFunc 764-783), GameVar.as:31-129, Class/GameSaveData.as:10,232-259,450-488, Class_StMapMenu/StMapMenu_sutetasu.as:379-395, Game.as:270-275,280-1158",
+  "statNames": ["hp", "atk", "def", "speed", "luk"],
+  "statLabels": {"hp": "HP", "atk": "ATK", "def": "DEF", "speed": "AGI", "luk": "LUC"},
+  "startingStats": {"lv": 1, "hp": 100, "atk": 10, "def": 10, "speed": 5, "luk": 1, "stPt": 0, "exp": 0, "g": 0},
+  "statPointGain": {"hp": 5, "atk": 3, "def": 3, "speed": 2, "luk": 1},
+  "statPointsPerLevel": {"base": 4, "accessoryBaset700": 1, "accessoryBaset701": 2, "note": "stPt += 4 + GetPlusStPt per level; 701 overrides 700"},
+  "levelCap": {"normal": 10000001, "hard": 30000001, "note": "lvupFunc only runs while lv <= 10_000_000 (30_000_000 hard)"},
+  "expTable": {
+    "note": "OneExpTableFunc(i) = EXP required to go from level i to i+1 (per-level, exp resets each level). Table[0..9] literal, 10..119999 incremental, 120000..124999 formula (monotone-clamped until 120499), >=125000 formula.",
+    "first10": [3, 3, 4, 4, 6, 6, 6, 8, 8, 8],
+    "incrementalRule": "v=T[i-1]; first match of i%121:+30, %103:+26, %97:+23, %83:+17, %79:+16, %67:+15, %43:+13, %37:+11, %23:+8, %21:+6, %13:+4, %7:+2, %3:+int(i*0.02); then (%3000:+400 elif %1000:+200); %500:+200; %50:+20; (%200:+300 elif %100:+150); %15:+1",
+    "formula": "floor(i*(i*0.0022385+6.35))",
+    "samples": {"1": 3, "2": 4, "5": 6, "10": 8, "13": 12, "15": 15, "21": 21, "30": 36, "50": 103, "100": 436, "200": 1134, "500": 3415, "1000": 8292, "3000": 38440, "10000": 284974, "50000": 5918264, "100000": 23034443, "119999": 33000775, "120500": 33268754, "125000": 35770312}
+  },
+  "characterPower": {
+    "multiplier": "m = kyarakutalv > 0 ? ((kyarakutalv + heroAbilityLv) * 0.25 + 0.75) * (1 + sumBaset820/100) : 0",
+    "bonusFraction": {"hp": "KPhp * m * 0.06", "atk": "KPatk * m * 0.07", "def": "KPdef * m * 0.07", "speed": "KPspeed * m * 0.075", "luk": "KPluk * m * 0.08"},
+    "applied": "effective = flatEquip + (flatEquip + base) * (equipMulti + bonusFraction)",
+    "baseAbilityLv": {"field": "gamesavedata.kyarakutalv", "max": 18, "rule": "count of WinbossV[i]==1 for i in [0,1,2,8,9,12,13,19,28] and [100,101,102,108,109,112,113,119,128]"},
+    "heroAbilityLv": {
+      "field": "gamesavedata.kyarakutaKozinExp[heronum]",
+      "expGain": "final level of the run, added at game over while kyarakutalv != 0 and exp < 170000000",
+      "lvThresholds": [10000, 100000, 700000, 1800000, 3600000, 6000000, 10000000, 14000000, 18000000, 22000000, 28000000, 34000000, 40000000, 50000000, 65000000, 80000000, 100000000, 120000000, 140000000, 170000000, 200000000, 240000000, 280000000],
+      "lvRule": "lv = 1 + max index i with exp >= lvThresholds[i], else 0",
+      "intendedCap": 20
+    }
+  },
+  "characters": [
+    {"id": 0,  "grid": {"row": 0, "col": 0}, "sprite": "heropng63", "kp": {"hp": 0, "atk": 2, "def": 0, "speed": 2, "luk": 0}},
+    {"id": 1,  "grid": {"row": 0, "col": 1}, "sprite": "heropng30", "kp": {"hp": 1, "atk": 2, "def": 0, "speed": 1, "luk": 0}},
+    {"id": 2,  "grid": {"row": 0, "col": 2}, "sprite": "heropng103", "kp": {"hp": 1, "atk": 2, "def": 0, "speed": 0, "luk": 1}},
+    {"id": 3,  "grid": {"row": 0, "col": 3}, "sprite": "heropng11", "kp": {"hp": 0, "atk": 2, "def": 0, "speed": 0, "luk": 2}},
+    {"id": 4,  "grid": {"row": 1, "col": 0}, "sprite": "heropng55", "kp": {"hp": 1, "atk": 1, "def": 0, "speed": 2, "luk": 0}},
+    {"id": 5,  "grid": {"row": 1, "col": 1}, "sprite": "heropng7",  "kp": {"hp": 2, "atk": 1, "def": 0, "speed": 1, "luk": 0}},
+    {"id": 6,  "grid": {"row": 1, "col": 2}, "sprite": "heropng64", "kp": {"hp": 2, "atk": 1, "def": 0, "speed": 0, "luk": 1}},
+    {"id": 7,  "grid": {"row": 1, "col": 3}, "sprite": "heropng19", "kp": {"hp": 1, "atk": 1, "def": 0, "speed": 0, "luk": 2}},
+    {"id": 8,  "grid": {"row": 2, "col": 0}, "sprite": "heropng8",  "kp": {"hp": 1, "atk": 0, "def": 1, "speed": 2, "luk": 0}},
+    {"id": 9,  "grid": {"row": 2, "col": 1}, "sprite": "heropng33", "kp": {"hp": 2, "atk": 0, "def": 1, "speed": 1, "luk": 0}},
+    {"id": 10, "grid": {"row": 2, "col": 2}, "sprite": "heropng110", "kp": {"hp": 2, "atk": 0, "def": 1, "speed": 0, "luk": 1}},
+    {"id": 11, "grid": {"row": 2, "col": 3}, "sprite": "heropng61", "kp": {"hp": 1, "atk": 0, "def": 1, "speed": 0, "luk": 2}},
+    {"id": 12, "grid": {"row": 3, "col": 0}, "sprite": "heropng83", "kp": {"hp": 0, "atk": 0, "def": 2, "speed": 2, "luk": 0}},
+    {"id": 13, "grid": {"row": 3, "col": 1}, "sprite": "heropng69", "kp": {"hp": 1, "atk": 0, "def": 2, "speed": 1, "luk": 0}},
+    {"id": 14, "grid": {"row": 3, "col": 2}, "sprite": "heropng31", "kp": {"hp": 1, "atk": 0, "def": 2, "speed": 0, "luk": 1}},
+    {"id": 15, "grid": {"row": 3, "col": 3}, "sprite": "heropng4",  "kp": {"hp": 0, "atk": 0, "def": 2, "speed": 0, "luk": 2}}
+  ],
+  "battlePoints": {
+    "max": {"normal": 30, "hard": 10, "plus": "sum of accessory baset500 values"},
+    "remaining": "MAX - nokoriBattleTimes (nokoriBattleTimes may go negative)",
+    "costs": {"battleStart": 1, "lossPenalty": {"normal": 2, "hard": 4}, "winNet": 1, "lossNet": {"normal": 3, "hard": 5}},
+    "bossWinRefund": {"0": 3, "1": 7, "2": 4, "3": 3, "4": 3, "5": 3, "6": 4, "7": 4, "8": 4, "9": 4, "10": 3, "11": 3, "12": 5, "13": 3, "14": 2, "15": 2, "16": 2, "17": 2, "18": 2, "19": 4, "20": 6, "21": 4, "22": 5, "23": 4, "24": 4, "25": 4, "26": 4, "27": 4, "28": 5},
+    "gameOverWhen": "remaining <= 0 when the map resumes after a battle"
+  },
+  "healCost": "int(g*0.5 + maxHP*0.5 + 3000)",
+  "slotUnlockGold": {"slot3": 5000, "slot4": 30000, "slot5": 250000, "slot6": 500000, "slot7": 750000, "slot8": 5000000, "slot9": 5000000, "slot10": 3500000, "slot11": 3500000},
+  "equipSetUnlockGold": {"set2": 300000, "set3": 1500000, "set4": 2100000, "set5": 4000000},
+  "hardMode": {"unlock": "Highlv >= 100000", "plays": 10, "rechargeSeconds": 600, "enemyHP": 10, "enemyATK": 8.5, "enemyGold": 5, "enemyExp": 12, "enemyExpExtraWhenBossSyuBelow32": 2}
+}

@@ -1,0 +1,12 @@
+"AppBuild"
+{
+	"AppID" "__APP_ID__"
+	"Desc" "Surge RPG __VERSION__ (win x64)"
+	"BuildOutput" "..\release\steam-output\"
+	"ContentRoot" "..\release\win-unpacked\"
+	"SetLive" ""
+	"Depots"
+	{
+		"__DEPOT_ID__" "depot_build.vdf"
+	}
+}
