@@ -9,6 +9,10 @@ import { normalizeSets } from '../equipment/sets.js';
 import { STARTING_STATS } from '../progression/characters.js';
 import { createEchoes } from '../echoes.js';
 import { createFarm } from '../farm.js';
+import { createRelics } from '../crafting.js';
+import { createModeStats } from '../progression/modeStats.js';
+import { createLimitBreak } from '../progression/limitBreak.js';
+import { createPassiveShards } from '../progression/passiveShards.js';
 
 export const SAVE_VERSION = 1;
 
@@ -29,20 +33,25 @@ export function createProfile() {
     gold: 0, // the original keeps gold in the per-run object but lets you shop at game over; we carry 0 into the next run
     characterExp: new Array(16).fill(0),
     bossWins: {}, // key: bossId (normal) / bossId+100 (hard) -> 1
+    slimeKingsBeaten: {}, // key: slime id -> 1 (either mode): the TP level (talents.js)
     bossesSeen: {},
     mapsSeen: {}, // HakkenmapV: map id -> 1 once entered
     heroTalents: {}, // hero index -> talent tree { points, earned, ranks } (src/core/progression/talents.js)
     farm: createFarm(), // Farm: garden plots, mine, laboratory and its stock (src/core/farm.js)
     echoes: createEchoes(), // Ancestral Echoes: { owned: [ids], equipped: { hero: id } } (src/core/echoes.js)
-    crafted: {}, // hero index -> [4 relic slots] (src/core/crafting.js)
+    relics: createRelics(), // relics: { owned: { id: { level, sub } }, equipped: { hero: [4 ids] } } (src/core/crafting.js)
     unlocks: {}, // kind -> how many are bought: echo rarities, talent tiers, relic slots, classes (core/progression/unlocks.js)
     bestiary: {}, // enemy id -> { seen, defeated } (src/core/bestiary.js)
     highestRecord: null, // stats and equipment at the best level (GameOver.as HighItemEquip / shp...)
+    modeStats: createModeStats(), // the same records per game mode, normal / abyss (core/progression/modeStats.js)
     lastCharacter: 0,
     lastClass: 'warrior',
-    options: { bgm: 0.6, bgmOn: true, sfx: 0.8, afterBattle: 0, fullscreen: false, language: 'en' },
+    options: { bgm: 1, bgmOn: true, sfx: 1, afterBattle: 0, fullscreen: false, language: 'en', battleButton: 'normal' }, // volumes start at 100% (then the player's own); battleButton: map dock Battle look, 'normal' | 'abyss' (needs the abyssal mode)
     tutorialSeen: {},
     autoAlloc: createAutoAlloc(), // automatic stat-point distribution (core/progression/autoAlloc.js)
+    classEmblems: 0, // Class Emblems, the price of the classes (core/progression/classEmblems.js)
+    limitBreak: createLimitBreak(), // Break Shards and extra affinity arrows per hero (core/progression/limitBreak.js)
+    passiveShards: createPassiveShards(), // Passive Shards and rerolled hero passives (core/progression/passiveShards.js)
     autoClass: {}, // class id -> subclass branch promoted into automatically (core/progression/classes.js)
     run: null, // in-progress run snapshot (continue)
   };

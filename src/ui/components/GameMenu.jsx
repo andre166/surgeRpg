@@ -2,9 +2,10 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useGame, SCREEN } from '../stores/gameStore.js';
 import { useT } from '../i18n/index.js';
 import PixelIcon from './PixelIcon.jsx';
+import Codex from './Codex.jsx';
 
 /**
- * Map HUD "Menu" button: a dropdown with Bestiary, Options, Save & quit and End run. `inDock`
+ * Map HUD "Menu" button: a dropdown with Bestiary, Codex (Codex.jsx, a modal), Options, Save & quit and End run. `inDock`
  * draws it as a bottom dock tile (icon over the label), its dropdown opening upwards.
  */
 export default function GameMenu({ inDock = false }) {
@@ -15,6 +16,7 @@ export default function GameMenu({ inDock = false }) {
   const abandon = useGame((s) => s.abandonRun);
   const [confirmEnd, setConfirmEnd] = useState(false);
   const [open, setOpen] = useState(false);
+  const [codex, setCodex] = useState(false);
   const ref = useRef(null);
 
   useEffect(() => {
@@ -50,6 +52,10 @@ export default function GameMenu({ inDock = false }) {
               {it.badge && <span className="game-menu-badge">{it.badge}</span>}
             </button>
           ))}
+          <button className="btn small game-menu-item" role="menuitem" onClick={() => { setOpen(false); setCodex(true); }}>
+            <PixelIcon name="redBook" size={18} />
+            <span>{t('codex.title')}</span>
+          </button>
           <div className="game-menu-sep" />
           <button className="btn small game-menu-item" role="menuitem" onClick={async () => { setOpen(false); await persist(true); go(SCREEN.TITLE); }}>
             <PixelIcon name="floppy" size={18} />
@@ -68,6 +74,7 @@ export default function GameMenu({ inDock = false }) {
           )}
         </div>
       )}
+      {codex && <Codex onClose={() => setCodex(false)} />}
     </div>
   );
 }

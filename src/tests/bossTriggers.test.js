@@ -17,9 +17,10 @@ const trigger = (index, data, name = 'boss') => ({ index, type: 'trigger', name,
 const art = (...objectProps) => ({ width: 64, height: 64, objectProps });
 
 describe('boss triggers', () => {
-  it('places the boss at the centre of the trigger cell, sized like world.json', () => {
+  it('places the boss at the centre of the trigger cell, at half its world.json size', () => {
     const bosses = parseBossTriggers(art(trigger(cell(10, 40), '{"boss":0}')), map1, allBosses);
-    expect(bosses).toEqual([{ id: 0, x: 262.5, y: 1012.5, w: 188, h: 112, scale: 2.5 }]);
+    // half the world.json rectangle (BOSS_MAP_SCALE)
+    expect(bosses).toEqual([{ id: 0, x: 262.5, y: 1012.5, w: 94, h: 56, scale: 2.5 }]);
   });
 
   it('accepts the bestiary id ("boss#0") and numeric strings', () => {
@@ -66,7 +67,7 @@ describe('boss triggers', () => {
 });
 
 describe('world boss override', () => {
-  it('boss triggers replace the world.json bosses of that map; none keeps them', () => {
+  it('boss triggers replace the world.json bosses of that map (none = no boss); null restores them', () => {
     const world = createWorld(worldData);
     const original = world.map(1).bosses;
     const placed = parseBossTriggers(art(trigger(cell(10, 40), '{"boss":0}')), world.map(1), allBosses);
@@ -76,10 +77,12 @@ describe('world boss override', () => {
     expect(world.maps.find((m) => m.id === 1).bosses).toBe(original);
     expect(world.map(2).bosses).toEqual(worldData.maps.find((m) => m.id === 2).bosses);
     world.setMapBosses(1, []);
+    expect(world.map(1).bosses).toEqual([]);
+    world.setMapBosses(1, null);
     expect(world.map(1).bosses).toBe(original);
   });
 
-  it('touch and slime use the trigger position', () => {
+  it('touch uses the trigger position', () => {
     const world = createWorld(worldData);
     world.setMapBosses(1, parseBossTriggers(art(trigger(cell(10, 40), '{"boss":0}')), world.map(1), allBosses));
     const boss = world.map(1).bosses[0];
@@ -93,12 +96,8 @@ describe('world boss override', () => {
     // the old place (800, 200) is empty now
     expect(bossTouch(run, world, 800, 270, 800, 250)).toEqual({ bossId: -1, slimeId: -1, x: 800, y: 250 });
 
-    // slime: right of the boss, same row, outside its rectangle
-    const [s] = mapSlimes(world.map(1));
-    expect(s.y).toBe(boss.y);
-    expect(s.x).toBeGreaterThan(boss.x + boss.w / 2);
-    expect(bossHit(boss, s.x, s.y)).toBe(false);
-    expect(bossTouch(run, world, s.x, s.y + s.h, s.x, s.y).slimeId).toBe(0);
+    // no slime king next to the boss: they come only from their own triggers
+    expect(mapSlimes(world.map(1))).toEqual([]);
   });
 });
 

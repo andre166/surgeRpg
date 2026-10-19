@@ -16,6 +16,8 @@
 import { expForLevel } from '../progression/expTable.js';
 import { enemyPoint, battleRates } from './rates.js';
 import { trunc2 } from '../util/num.js';
+import { balancedComboRate, COMBO_BONUS_CAP } from './combo.js';
+import { isMapBossId } from '../encounters/customBosses.js';
 
 export const BONUS = Object.freeze({
   NONE: -1,
@@ -59,7 +61,7 @@ export function setupEnemy(args) {
   let drops = enemy.drops ?? [null, null, null];
   if (hardMode) {
     exp *= 12;
-    if (bossId < 32) exp *= 2;
+    if (bossId < 0 || isMapBossId(bossId)) exp *= 2;
     if (enemy.hardDrops) drops = enemy.hardDrops;
   }
 
@@ -72,10 +74,13 @@ export function setupEnemy(args) {
 
   exp *= mods.expMultiplier;
   gold *= rates.goldMultiplier;
+  gold *= 1 + (mods.goldBonus ?? 0); // echo bonus (not in the original)
 
-  let comboRate = rates.comboRate + mods.comboRatePlus;
+  let comboRate = rates.comboRate + mods.comboRingPlus;
   if (comboRate > 0.7) comboRate = 0.7;
   comboRate = trunc2(comboRate);
+  // Surge balance (battle/combo.js): class / echo combo with diminishing returns, soft cap 0.65
+  comboRate = trunc2(balancedComboRate(comboRate, mods.comboRatePlus));
   let critRate = rates.critRate + mods.critRatePlus;
   if (critRate > 0.6) critRate = 0.6;
   // (the original truncates comboRate a second time here, not critRate)
@@ -88,7 +93,7 @@ export function setupEnemy(args) {
       comboRate *= 1.1;
       comboRate += 0.075;
       if (comboRate <= 0.45) comboRate = 0.45;
-      if (comboRate > 0.72) comboRate = 0.72;
+      if (comboRate > COMBO_BONUS_CAP) comboRate = COMBO_BONUS_CAP; // original 0.72 (battle/combo.js)
       comboRate = trunc2(comboRate);
       critRate *= 1.05;
       critRate += 0.075;

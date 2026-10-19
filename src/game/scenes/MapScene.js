@@ -13,7 +13,9 @@ import { bossPixels, BOSS_SIZE } from '../../ui/bossArt.js';
 import { HERO_ART_INDEXES, heroArtKey, heroArtUrl, heroWalk, heroWalkAnimKey, WALK_COLUMNS, WALK_DIRECTIONS } from '../heroArt.js';
 import { hasMapArt, mapArtKey, mapArtLayers, mapArtSpriteFrames, mapArtSpriteKey, mapArtSprites, mapArtTilesetKey, mapArtTilesets, mapArtUrl, tilesetOf } from '../mapArt.js';
 import { collisionGrid, moveWithCollision } from '../../core/world/collision.js';
-import { parseTriggers, parseBossTriggers, isBossTrigger, bossSprites, spawnCell, triggerMapId, cellAt, cellCentre } from '../../core/world/triggers.js';
+import { applyEditorMap } from '../../core/world/editorMap.js';
+import { areaContentFor } from '../areaContent.js';
+import { parseTriggers, BOSS_MAP_SCALE, bossSprites, spawnCell, triggerMapId, cellAt, cellCentre } from '../../core/world/triggers.js';
 import { translate } from '../../ui/i18n/index.js';
 import { bonusText } from '../../ui/i18n/bonus.js';
 import { heroEcho } from '../../core/echoes.js';
@@ -48,12 +50,36 @@ const BORDER_GLOW = 10;
 const BORDER_ALPHA = 0.45;
 // colours of the last borders bake per map texture (re-bake only when they change)
 const BORDER_BAKES = new Map();
+
+/**
+ * Development: a map exported again from the map editor shows up on the next visit of that map,
+ * without reloading the game. The map game (and its caches) lives for the whole session, so in dev
+ * the art JSON is fetched again on every visit and, when it changed, the textures baked from it
+ * (art layers, terrain, area borders) are dropped and baked again. Production files never change.
+ */
+const ART_SIGS = new Map();
+function artSignature(art) {
+  const text = JSON.stringify(art);
+  let h = 2166136261;
+  for (let i = 0; i < text.length; i += 1) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return `${text.length}:${h >>> 0}`;
+}
 // on maps with hand-made art the procedural terrain is baked at this fraction of the map size (it sits under the art)
 const TERRAIN_SCALE = 0.25;
 // Depth: the hero, bosses and the map's sprite layer are sorted by their bottom edge
 // (10..11); tile layers above the sprite layer cover them all.
 const sortDepth = (bottomY) => 10 + bottomY / 100000;
 const DEPTH_ABOVE = 20;
+// Area borders and level labels follow the area layer's place in the art's layer stack: under
+// the sprite layer (over the tiles before it, under the tiles after it: DEPTH_BETWEEN), or over
+// it (over the tile layers before it, under the ones after it: DEPTH_TOP).
+const DEPTH_AREA_LOW = 1;
+const DEPTH_BETWEEN = 2;
+const DEPTH_AREA_HIGH = 21;
+const DEPTH_TOP = 22;
 // Under everything else (depth 0): procedural terrain, the map art's ground layer, then the
 // boss circles, which lie on the ground like it (the decor tiles over the ground cover them).
 const DEPTH_TERRAIN = -3;
@@ -74,6 +100,17 @@ const ECHO_ORBIT_SPEED = 0.0011; // radians per ms
 const ECHO_ORBIT_RX = 44;
 const ECHO_ORBIT_RY = 16;
 const ECHO_HEART_EVERY = 6000;
+// extra camera room past every edge of the map (beyond the top and bottom HUD bars), so a
+// finger dragging the hero along an edge never lands on the HUD or the window border (CSS px; the larger of the two)
+const MAP_EDGE_ROOM_PX = 72;
+const MAP_EDGE_ROOM_SHARE = 0.12;
+/** Camera zoom of the map: a bit farther out than the art's own size (phones a little closer). */
+const MAP_ZOOM = 0.7;
+const MAP_ZOOM_COMPACT = 0.8;
+// map change: fade to the map background colour when leaving, back in on arrival (ms)
+const MAP_FADE_OUT_MS = 160;
+const MAP_FADE_IN_MS = 240;
+const MAP_FADE_RGB = [11, 13, 18];
 
 export default class MapScene extends Phaser.Scene {
   constructor() {
@@ -97,12 +134,15 @@ export default class MapScene extends Phaser.Scene {
         for (const t of mapArtTilesets(art)) image(mapArtTilesetKey(mapId, t.firstGid), t.dataUrl);
         for (const f of mapArtSpriteFrames(art)) image(mapArtSpriteKey(mapId, f.asset, f.frame), f.dataUrl);
       };
+      if (import.meta.env.DEV) this.cache.json.remove(key); // fetch the editor's latest export (see ART_SIGS)
       if (this.cache.json.exists(key)) loadImages(this.cache.json.get(key));
       else {
         this.load.once(`filecomplete-json-${key}`, (_, __, art) => loadImages(art));
         this.load.json(key, mapArtUrl(mapId));
       }
     }
+    // the map screen shows its loading cover until the first frame of the map is drawn
+    if (this.load.list.size) this.game.events.emit('map-loading');
   }
 
   /** Image of a loaded texture (for drawing into a canvas). */
@@ -112,10 +152,12 @@ export default class MapScene extends Phaser.Scene {
 
   /**
    * Draws the tile layers of the map art the way the editor shows them (layers in order,
-   * every tile at the map tile size) into three canvases: `ground` (up to the ground layer,
-   * else the first tile layer; under the boss circles), `below` (the rest up to the sprite
-   * layer, under the hero and the sprites) and `above` (`below` and `above` null when empty).
-   * The sprites themselves are returned to be placed as objects, depth-sorted with the hero.
+   * every tile at the map tile size) into canvases: `ground` (up to the ground layer, else the
+   * first tile layer; under the boss circles), `below` (the rest up to the sprite layer, under
+   * the hero and the sprites) and `above`; the tiles past the area layer go to `between` (area
+   * under the sprite layer) or `top` (area over it). Empty canvases come back null, except
+   * `ground`. `areaHigh`: the area layer is over the sprite layer. The sprites themselves are
+   * returned to be placed as objects, depth-sorted with the hero.
    */
   composeMapArt(art, mapId) {
     const ts = art.tileSize ?? 32;
@@ -132,6 +174,10 @@ export default class MapScene extends Phaser.Scene {
     const ground = newCanvas();
     const below = newCanvas();
     const above = newCanvas();
+    const between = newCanvas();
+    const top = newCanvas();
+    let sawSprites = false;
+    let areaHigh = false;
     const layers = mapArtLayers(art);
     const groundLayer = layers.find((l) => l.id === 'ground' && l.kind === 'tile') ?? layers.find((l) => l.kind === 'tile');
     let target = ground;
@@ -139,7 +185,13 @@ export default class MapScene extends Phaser.Scene {
     for (const layer of layers) {
       if (layer.kind === 'sprite') {
         sprites = mapArtSprites(art).map((s) => ({ ...s, opacity: layer.opacity }));
+        sawSprites = true;
         target = above;
+        continue;
+      }
+      if (layer.kind === 'area') {
+        areaHigh = sawSprites;
+        target = sawSprites ? top : between;
         continue;
       }
       const { ctx } = target;
@@ -156,25 +208,33 @@ export default class MapScene extends Phaser.Scene {
       }
       if (layer === groundLayer && target === ground) target = below;
     }
-    return { ground: ground.canvas, below: below.drawn ? below.canvas : null, above: above.drawn ? above.canvas : null, sprites };
+    const canvasOf = (c) => (c.drawn ? c.canvas : null);
+    return { ground: ground.canvas, below: canvasOf(below), above: canvasOf(above), between: canvasOf(between), top: canvasOf(top), areaHigh, sprites };
   }
 
   /** Hand-made background (src/game/mapArt.js) stretched over the map; false when the map has none. */
   drawMapArt(map) {
     const art = this.cache.json.get(mapArtKey(map.id));
+    // dev: a new export of this map drops what was baked from the old one (see ART_SIGS)
+    if (art && import.meta.env.DEV) {
+      const sig = artSignature(art);
+      if (ART_SIGS.has(map.id) && ART_SIGS.get(map.id) !== sig) {
+        for (const key of [`map-art-ground-${map.id}`, `map-art-below-${map.id}`, `map-art-above-${map.id}`, `map-art-between-${map.id}`, `map-art-top-${map.id}`, `map-terrain-${map.id}`, `map-borders-${map.id}`]) {
+          if (this.textures.exists(key)) this.textures.remove(key);
+        }
+        BORDER_BAKES.delete(`map-borders-${map.id}`);
+      }
+      ART_SIGS.set(map.id, sig);
+    }
     // collision layer of the editor (non-zero = wall), stretched like the art
     this.collision = art ? collisionGrid(art.layerData?.collision, art.width, art.height, map.w, map.h) : null;
     // triggers of the editor's object layer (src/core/world/triggers.js)
     this.art = art ?? null;
     this.triggers = art ? parseTriggers(art) : [];
-    // boss triggers replace the world.json bosses of this map (none = keep them); the core
-    // (bossTouch, mapSlimes, battles) reads them through world.map(id)
-    const bosses = art
-      ? parseBossTriggers(art, map, world.maps.flatMap((m) => m.bosses ?? []), { validIds: new Set(Object.keys(data.bossData.mapBosses).map(Number)) })
-      : [];
-    const bossTriggerCount = (art?.objectProps ?? []).filter(isBossTrigger).length;
-    if (bossTriggerCount > bosses.length) console.warn(`map ${map.id}: ${bossTriggerCount - bosses.length} boss trigger(s) ignored (invalid or repeated boss id; use {"boss": 0} or {"boss": "boss#0"})`);
-    world.setMapBosses(map.id, bosses);
+    // bosses and slime kings of the boss triggers, area grid and levels of the area layer, then the
+    // area content (levels and monsters, src/content/areas) (editorMap.js); the core (bossTouch, mapSlimes, areaAt, battles) reads them through world.map(id)
+    const { ignored } = applyEditorMap(world, map.id, art ?? null, data.bossData, data.enemyPools, areaContentFor(map.id));
+    if (ignored) console.warn(`map ${map.id}: ${ignored} boss trigger(s) ignored (invalid or repeated boss id; use {"boss": 0}, {"boss": "boss#0"} or {"boss": "slime#30"})`);
     // sprites standing on a boss trigger are that boss: hidden once it is beaten this run
     this.bossSpriteOwners = art ? bossSprites(art) : new Map();
     if (!art) return false;
@@ -182,30 +242,39 @@ export default class MapScene extends Phaser.Scene {
     const groundKey = `map-art-ground-${map.id}`;
     const belowKey = `map-art-below-${map.id}`;
     const aboveKey = `map-art-above-${map.id}`;
+    const betweenKey = `map-art-between-${map.id}`;
+    const topKey = `map-art-top-${map.id}`;
     if (!this.textures.exists(groundKey)) {
-      const { ground, below, above, sprites } = this.composeMapArt(art, map.id);
+      const { ground, below, above, between, top, areaHigh, sprites } = this.composeMapArt(art, map.id);
       // plain image textures: addCanvas would read every pixel back (getImageData), which the
       // game never needs and which made the first visit of a big map hitch
       this.textures.addImage(groundKey, ground).setFilter(Phaser.Textures.FilterMode.NEAREST);
       if (below) this.textures.addImage(belowKey, below).setFilter(Phaser.Textures.FilterMode.NEAREST);
       if (above) this.textures.addImage(aboveKey, above).setFilter(Phaser.Textures.FilterMode.NEAREST);
+      if (between) this.textures.addImage(betweenKey, between).setFilter(Phaser.Textures.FilterMode.NEAREST);
+      if (top) this.textures.addImage(topKey, top).setFilter(Phaser.Textures.FilterMode.NEAREST);
       this.mapArtSprites = { ...this.mapArtSprites, [map.id]: sprites };
+      this.mapArtAreaHigh = { ...this.mapArtAreaHigh, [map.id]: areaHigh };
     }
     const bg = this.add.image(0, 0, groundKey).setOrigin(0, 0).setDepth(DEPTH_GROUND);
     const sx = map.w / bg.width;
     const sy = map.h / bg.height;
     bg.setScale(sx, sy);
-    // decor tiles (default depth, added first): over the boss circles, under the borders and labels
+    // decor tiles (depth 0): over the boss circles, under the sprites
     if (this.textures.exists(belowKey)) this.add.image(0, 0, belowKey).setOrigin(0, 0).setScale(sx, sy);
     if (this.textures.exists(aboveKey)) this.add.image(0, 0, aboveKey).setOrigin(0, 0).setScale(sx, sy).setDepth(DEPTH_ABOVE);
+    if (this.textures.exists(betweenKey)) this.add.image(0, 0, betweenKey).setOrigin(0, 0).setScale(sx, sy).setDepth(DEPTH_BETWEEN);
+    if (this.textures.exists(topKey)) this.add.image(0, 0, topKey).setOrigin(0, 0).setScale(sx, sy).setDepth(DEPTH_TOP);
+    this.areaDepth = this.mapArtAreaHigh?.[map.id] ? DEPTH_AREA_HIGH : DEPTH_AREA_LOW;
     // sprite layer: each sprite sorted with the hero by its bottom edge (lower on screen = in front).
     // Sprites standing on a boss trigger are not drawn: the boss is drawn with its own pixel art in
-    // their place (bottom-centre, same height; see the bosses in create), until it is beaten.
+    // their place (bottom-centre, half their height; see the bosses in create), until it is beaten.
     this.bossArtSpots = {};
     for (const s of this.mapArtSprites?.[map.id] ?? []) {
       const owner = this.bossSpriteOwners.get(s.index);
       if (owner != null) {
-        const spot = { x: (s.x + s.w / 2) * sx, y: (s.y + s.h) * sy, h: s.h * sy };
+        // the boss art takes the sprite's place at the size of the other map bosses (BOSS_MAP_SCALE)
+        const spot = { x: (s.x + s.w / 2) * sx, y: (s.y + s.h) * sy, h: s.h * sy * BOSS_MAP_SCALE };
         const prev = this.bossArtSpots[owner];
         // a boss built from several sprites: its spot spans them (lowest feet, tallest height)
         this.bossArtSpots[owner] = prev ? { x: prev.x, y: Math.max(prev.y, spot.y), h: Math.max(prev.h, spot.h) } : spot;
@@ -402,10 +471,13 @@ export default class MapScene extends Phaser.Scene {
     this.arrivalDir = arrival.dir;
   }
 
-  /** A new run starts on the spawn point of the start map's art (editor object of type spawn). */
+  /**
+   * A new run starts on the spawn point of the start map's art (editor object of type spawn); so
+   * does a boss teleport (atSpawn: boss trigger "teleport", session.js finishBattle).
+   */
   applySpawn(map) {
     const pos = useGame.getState().run?.map;
-    if (!pos?.atStart || pos.id !== map.id || !this.art) return;
+    if (!(pos?.atStart || pos?.atSpawn) || pos.id !== map.id || !this.art) return;
     const cell = spawnCell(this.art);
     if (!cell) return;
     const p = cellCentre(cell.col, cell.row, this.art.width, this.art.height, map.w, map.h);
@@ -420,7 +492,7 @@ export default class MapScene extends Phaser.Scene {
 
   /** Runs a trigger the hero just stepped on; true when it moved the hero. */
   fireTrigger(trigger) {
-    const destId = triggerMapId(trigger, this.map.id);
+    const destId = triggerMapId(trigger, this.map.id, world);
     const dest = destId != null ? world.map(destId) : null;
     if (!dest) {
       console.warn(`teleport trigger at cell ${trigger.cell}: unknown map "${trigger.map}"`);
@@ -438,9 +510,9 @@ export default class MapScene extends Phaser.Scene {
       this.disarmTriggers(pos.x, pos.y);
       return true;
     }
-    // another map: the map change restarts the scene (store subscription in create) and
-    // applyArrival places the hero; a second restart here would lose the arrival direction
-    useGame.getState().setPosition(dest.w / 2, dest.h / 2, dest.id);
+    // another map: after the fade, the map change restarts the scene (store subscription in create)
+    // and applyArrival places the hero; a second restart here would lose the arrival direction
+    this.leaveMap(() => useGame.getState().setPosition(dest.w / 2, dest.h / 2, dest.id));
     return true;
   }
 
@@ -468,30 +540,67 @@ export default class MapScene extends Phaser.Scene {
   }
 
   /**
-   * Camera bounds past the map edges by the height of the HUD bars over the canvas, so the
+   * Camera bounds past the map edges by the height of the HUD bars over the canvas plus room for a finger, so the
    * first and last rows of the map can scroll out from under them (and be clicked).
    */
-  fitCameraToHud() {
+  fitCameraToHud(snap = false) {
     if (!this.map) return;
     const canvas = this.game.canvas.getBoundingClientRect();
     if (!canvas.height) return;
     const k = this.scale.height / canvas.height;
     const hud = (side) => document.querySelector(`.screen.map .hud.${side}`)?.getBoundingClientRect();
-    // top: only the first button row (on phones the buttons stack in a column on the right)
-    const top = document.querySelector('.screen.map .hud.top .hud-actions > :first-child')?.getBoundingClientRect();
+    // top: the lowest part of the top bar (battle points, gold, wages, level)
+    const topEls = [...document.querySelectorAll('.screen.map .hud.top > *')].map((el) => el.getBoundingClientRect()).filter((r) => r.height > 0);
+    const top = topEls.length ? { bottom: Math.max(...topEls.map((r) => r.bottom)) } : null;
     const bottom = hud('bottom');
-    const padTop = top ? Math.max(0, top.bottom - canvas.top) * k : 0;
-    const padBottom = bottom ? Math.max(0, canvas.bottom - bottom.top) * k : 0;
-    this.cameras.main.setBounds(0, -padTop, this.map.w, this.map.h + padTop + padBottom);
+    // bottom: up to the highest part of the bar (the raised Battle button sticks out above it), plus
+    // room for a finger, so dragging the hero along the last row never lands on the HUD
+    const bottomTop = bottom
+      ? Math.min(bottom.top, ...[...document.querySelectorAll('.screen.map .hud.bottom .dock-btn, .screen.map .hud-area-dock .hud-area')].map((el) => el.getBoundingClientRect().top))
+      : canvas.bottom;
+    const fingerRoom = Math.max(MAP_EDGE_ROOM_PX, canvas.height * MAP_EDGE_ROOM_SHARE);
+    const padTop = top ? (Math.max(0, top.bottom - canvas.top) + fingerRoom) * k : 0;
+    const padBottom = bottom ? (Math.max(0, canvas.bottom - bottomTop) + fingerRoom) * k : 0;
+    // left / right: the same finger room past the side edges, so the side columns can be reached too
+    const padSide = fingerRoom * k;
+    // zoomed out (MAP_ZOOM), but never so far that the map stops filling the view: its whole width
+    // (no empty strip on both sides), and its height with the room under the HUD bars
+    const compact = this.scale.scaleMode === Phaser.Scale.RESIZE;
+    const fill = Math.max(this.scale.width / this.map.w, (this.scale.height - padTop - padBottom) / this.map.h);
+    const zoom = Math.min(1, Math.max(compact ? MAP_ZOOM_COMPACT : MAP_ZOOM, fill));
+    const cam = this.cameras.main;
+    cam.setZoom(zoom);
+    // the paddings are screen sizes: in world units they grow as the camera zooms out
+    cam.setBounds(-padSide / zoom, -padTop / zoom, this.map.w + (padSide * 2) / zoom, this.map.h + (padTop + padBottom) / zoom);
+    // on arrival the camera jumps straight to the hero inside the final bounds (following it with
+    // lerp from the bounds of buildMap would slide it in from above)
+    if (snap && this.hero) cam.centerOn(this.hero.x, this.hero.y);
+  }
+
+  /**
+   * Leaves the map with a short fade to black, then runs `go` (which changes the map and restarts
+   * the scene). The hero stops while the screen fades; a second exit during the fade is ignored.
+   */
+  leaveMap(go) {
+    if (this.leaving) return;
+    this.leaving = true;
+    this.holding = false;
+    this.idleHero();
+    const cam = this.cameras.main;
+    cam.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => go());
+    cam.fadeOut(MAP_FADE_OUT_MS, ...MAP_FADE_RGB);
   }
 
   create() {
+    this.leaving = false; // the scene instance survives restarts (map changes)
     this.buildMap();
-    this.fitCameraToHud();
-    // HUD sizes change with the window and with fonts loading
-    this.scale.on('resize', this.fitCameraToHud, this);
-    this.time.delayedCall(500, () => this.fitCameraToHud());
-    this.events.once('shutdown', () => this.scale.off('resize', this.fitCameraToHud, this));
+    this.fitCameraToHud(true);
+    this.cameras.main.fadeIn(MAP_FADE_IN_MS, ...MAP_FADE_RGB);
+    // HUD sizes change with the window and with fonts loading (snapped again while the hero stands still)
+    const onResize = () => this.fitCameraToHud();
+    this.scale.on('resize', onResize, this);
+    this.time.delayedCall(500, () => this.fitCameraToHud(!this.holding));
+    this.events.once('shutdown', () => this.scale.off('resize', onResize, this));
     this.input.on('pointerdown', () => {
       this.holding = true;
     });
@@ -506,6 +615,8 @@ export default class MapScene extends Phaser.Scene {
     this.events.once('shutdown', () => this.game.events.off('blur', onBlur));
     this.unsub = useGame.subscribe((s, prev) => {
       if (s.run && prev.run && s.run.map.id !== prev.run.map.id && s.screen === 'map') this.scene.restart();
+      // bosses brought back (cheat) or area bonuses from a potion: redraw the map with them
+      else if (s.run && prev.run && s.screen === 'map' && (s.run.bossBeaten !== prev.run.bossBeaten || s.run.slimesBeaten !== prev.run.slimesBeaten || s.run.bonuses !== prev.run.bonuses)) this.scene.restart();
       else if (s.run && this.borders && s.run.level !== this.bordersLevel) this.drawBorders(s.run);
     });
     // also on 'destroy': leaving the map screen destroys the whole game (no 'shutdown'), and a
@@ -521,6 +632,7 @@ export default class MapScene extends Phaser.Scene {
     this.events.once('shutdown', release);
     this.events.once('destroy', release);
     this.lastSaveAt = 0;
+    this.game.events.once('postrender', () => this.game.events.emit('map-ready'));
   }
 
   buildMap() {
@@ -531,6 +643,14 @@ export default class MapScene extends Phaser.Scene {
     this.mapId = map.id;
     this.cameras.main.setBounds(0, 0, map.w, map.h);
     this.cameras.main.setBackgroundColor('#0b0d12');
+    this.areaDepth = DEPTH_AREA_LOW; // drawMapArt moves it with the art's area layer
+
+    // hand-made background (over the procedural terrain, which still shows through empty tiles)
+    this.drawMapArt(map);
+    // read again: boss triggers and the area layer of the art may have changed this map's
+    // bosses, area grid and area levels
+    map = world.map(run.map.id);
+    this.map = map;
 
     // terrain: drawn once per map into a texture (as live Graphics it was re-triangulated every
     // frame: hundreds of dot circles, ~40% of the CPU on big maps)
@@ -542,11 +662,6 @@ export default class MapScene extends Phaser.Scene {
     const terrainScale = hasMapArt(map.id) ? TERRAIN_SCALE : 1;
     if (!this.textures.exists(terrainKey)) this.bakeGraphics(terrainKey, map.w, map.h, (g, k) => this.drawTerrain(g, map, cw * k, ch * k, k), terrainScale);
     this.add.image(0, 0, terrainKey).setOrigin(0, 0).setScale(1 / terrainScale).setDepth(DEPTH_TERRAIN);
-    // hand-made background over the procedural terrain (which still shows through empty tiles)
-    this.drawMapArt(map);
-    // read again: boss triggers of the art may have moved this map's bosses
-    map = world.map(run.map.id);
-    this.map = map;
     this.applyArrival(map);
     this.applySpawn(map);
     // area borders, coloured by area level vs hero level (redrawn on level change)
@@ -557,14 +672,17 @@ export default class MapScene extends Phaser.Scene {
     const lang = useGame.getState().profile?.options.language;
     const t = (key, vars) => translate(lang, key, vars);
     const style = { fontFamily: 'Inter, system-ui, sans-serif', fontSize: '22px', color: '#ffffff', stroke: '#000000', strokeThickness: 4 };
+    // one label per separate region of an area painted in the editor (labels), else the original one
     for (const a of map.areas) {
-      if (!a.label || a.label[0] < 0) continue;
-      const x = (map.w * a.label[0]) / 100;
-      const y = (map.h * a.label[1]) / 100;
+      const spots = (a.labels?.length ? a.labels : [a.label]).filter((l) => l && l[0] >= 0);
       const bonus = run.bonuses?.[map.id]?.[a.id] ?? 0;
-      const lv = this.add.text(x, y, `LV ${a.level}`, style).setOrigin(0.5, bonus ? 1 : 0.5).setAlpha(0.9);
-      if (bonus) {
-        this.add.text(x, lv.y + 2, bonusText(t, bonus), { ...style, fontSize: '18px', color: '#f2b632' }).setOrigin(0.5, 0).setAlpha(0.95);
+      for (const [px, py] of spots) {
+        const x = (map.w * px) / 100;
+        const y = (map.h * py) / 100;
+        const lv = this.add.text(x, y, `LV ${a.level}`, style).setOrigin(0.5, bonus ? 1 : 0.5).setAlpha(0.9).setDepth(this.areaDepth);
+        if (bonus) {
+          this.add.text(x, lv.y + 2, bonusText(t, bonus), { ...style, fontSize: '18px', color: '#f2b632' }).setOrigin(0.5, 0).setAlpha(0.95).setDepth(this.areaDepth);
+        }
       }
     }
     // edges to neighbours
@@ -612,11 +730,24 @@ export default class MapScene extends Phaser.Scene {
       }
     }
 
-    // slime kings (talent points), next to each boss until beaten this run: each drawn with its own
+    // slime kings (talent points), where the boss triggers place them, until beaten this run: each drawn with its own
     // pixel-art sprite (bossArt.js), crisp, feet on the ground, breathing from the feet
     for (const s of mapSlimes(map)) {
       if (run.slimesBeaten?.[s.id]) continue;
       const r = Math.min(s.w, s.h) / 2;
+      // the same magic circle as the map bosses: white ring, coloured disc and skull, pulsing
+      const ring = this.add.graphics();
+      ring.lineStyle(4, 0xffffff, 0.9);
+      ring.strokeCircle(s.x, s.y, Math.max(s.w, s.h) / 2);
+      ring.fillStyle(hashColor(`slime${s.id}`), 0.85);
+      ring.fillCircle(s.x, s.y, Math.min(s.w, s.h) / 2.4);
+      ring.lineStyle(3, 0x111111, 1);
+      ring.strokeCircle(s.x, s.y, Math.min(s.w, s.h) / 2.4);
+      const skull = this.add.text(s.x, s.y, '☠', { fontSize: `${Math.max(24, Math.min(s.w, s.h) / 2)}px`, color: '#ffffff' }).setOrigin(0.5);
+      ring.setDepth(DEPTH_BOSS_MARK);
+      skull.setDepth(DEPTH_BOSS_MARK);
+      this.tweens.add({ targets: [ring, skull], alpha: { from: 0.75, to: 1 }, duration: 900, yoyo: true, repeat: -1 });
+      this.bossMarks.push(ring);
       const artKey = `slime-art-${s.id}`;
       const pixels = bossPixels(`slime#${s.id}`);
       if (pixels && !this.textures.exists(artKey)) {
@@ -872,7 +1003,7 @@ export default class MapScene extends Phaser.Scene {
         }
       }
     });
-    if (!this.borders) this.borders = this.add.image(0, 0, key).setOrigin(0, 0).setAlpha(BORDER_ALPHA);
+    if (!this.borders) this.borders = this.add.image(0, 0, key).setOrigin(0, 0).setAlpha(BORDER_ALPHA).setDepth(this.areaDepth);
     else if (fresh) this.borders.setTexture(key);
   }
 
@@ -915,7 +1046,7 @@ export default class MapScene extends Phaser.Scene {
 
   update(time, delta) {
     const store = useGame.getState();
-    if (!store.run || store.screen !== 'map' || !this.hero) return;
+    if (!store.run || store.screen !== 'map' || !this.hero || this.leaving) return;
     // a release missed while the scene restarted (map change) must not leave the hero walking
     if (this.holding && !this.input.activePointer.isDown) this.holding = false;
     if (!this.holding) {
@@ -957,9 +1088,10 @@ export default class MapScene extends Phaser.Scene {
         if (edge === 'right') { px = 8; py = (ny / this.map.h) * dest.h; }
         if (edge === 'up') { py = dest.h - 8; px = (nx / this.map.w) * dest.w; }
         if (edge === 'down') { py = 8; px = (nx / this.map.w) * dest.w; }
-        this.holding = false;
-        store.setPosition(px, py, dest.id);
-        this.scene.restart();
+        this.leaveMap(() => {
+          useGame.getState().setPosition(px, py, dest.id);
+          this.scene.restart();
+        });
         return;
       }
     }

@@ -3,7 +3,9 @@
  * Volume is controlled from the options screen through setVolume().
  */
 let ctx = null;
-let volume = 0.8;
+let volume = 1;
+/** Abyssal mode pick (sfx.abyss): its deep drone was much louder than the other effects, so it plays at 25%. */
+const ABYSS_GAIN = 0.25;
 
 function ac() {
   if (typeof window === 'undefined') return null;
@@ -14,6 +16,37 @@ function ac() {
   }
   if (ctx.state === 'suspended') ctx.resume().catch(() => {});
   return ctx;
+}
+
+let outputBoost = 1;
+let output = null;
+
+/**
+ * Master output every sound goes through. With a boost (phone speakers are much quieter
+ * than desktop ones) it feeds a limiter, so stacked effects get louder without clipping.
+ */
+function outputNode(c) {
+  if (!output) {
+    output = c.createGain();
+    output.gain.value = outputBoost;
+    if (outputBoost > 1) {
+      const limiter = c.createDynamicsCompressor();
+      limiter.threshold.value = -10;
+      limiter.knee.value = 6;
+      limiter.ratio.value = 12;
+      limiter.attack.value = 0.003;
+      limiter.release.value = 0.2;
+      output.connect(limiter).connect(c.destination);
+    } else {
+      output.connect(c.destination);
+    }
+  }
+  return output;
+}
+
+/** Overall loudness multiplier for the platform; call before the first sound plays. */
+export function setOutputBoost(k) {
+  outputBoost = Math.max(1, Number(k) || 1);
 }
 
 /** One synthesized note; `at` delays it (seconds) on the audio clock, so short phrases stay tight. */
@@ -28,7 +61,7 @@ function tone({ freq = 440, type = 'square', dur = 0.12, gain = 0.2, slide = 0, 
   if (slide) o.frequency.exponentialRampToValueAtTime(Math.max(30, freq + slide), t0 + dur);
   g.gain.setValueAtTime(gain * volume, t0);
   g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
-  o.connect(g).connect(c.destination);
+  o.connect(g).connect(outputNode(c));
   o.start(t0);
   o.stop(t0 + dur);
 }
@@ -78,6 +111,78 @@ export const sfx = {
   buzzer() {
     tone({ freq: 140, type: 'square', dur: 0.12, gain: 0.07 });
     tone({ freq: 132, type: 'sawtooth', dur: 0.12, gain: 0.05, at: 0.01 });
+  },
+  /*
+   * Loot roulette (result screen), three stages: while it spins, a rising whoosh (reelSpin) under
+   * a tick per step (reelTick, climbing as it slows); when it lands, a heavy clack and a snare
+   * drumroll swelling into the reveal (reelStop); then the reveal itself (loot).
+   */
+  reelSpin(dur = 1.5) {
+    tone({ freq: 160, type: 'sawtooth', dur, gain: 0.035, slide: 520 });
+    tone({ freq: 320, type: 'triangle', dur, gain: 0.05, slide: 1040 });
+  },
+  reelTick(p = 0) {
+    tone({ freq: 900 + p * 900, type: 'square', dur: 0.03, gain: 0.07 });
+    tone({ freq: 1800 + p * 1800, type: 'sine', dur: 0.05, gain: 0.04, at: 0.01 });
+    tone({ freq: 160, type: 'triangle', dur: 0.04, gain: 0.08 });
+  },
+  reelStop(suspense = 0.45) {
+    // clack: low thump + bright click
+    tone({ freq: 90, type: 'triangle', dur: 0.2, gain: 0.3, slide: -40 });
+    tone({ freq: 2400, type: 'square', dur: 0.03, gain: 0.08 });
+    // drumroll: quick ticks getting louder, under a held suspense note that bends up
+    const n = Math.max(4, Math.round(suspense / 0.035));
+    for (let i = 0; i < n; i += 1) tone({ freq: 220 + (i % 2) * 30, type: 'square', dur: 0.025, gain: 0.03 + (i / n) * 0.07, at: 0.08 + i * 0.035 });
+    tone({ freq: 392, type: 'triangle', dur: suspense + 0.05, gain: 0.07, slide: 120, at: 0.05 });
+  },
+  /*
+   * Item drop on the result screen: a burst and shimmer, then a rising chime that grows with the
+   * rarity ('rare' | 'epic' | 'legendary'); legendary ends on a held major chord over a low root.
+   */
+  loot(tier = 'rare') {
+    // burst: a falling whoosh and a high shimmer as the item pops out
+    tone({ freq: 1400, type: 'sawtooth', dur: 0.25, gain: 0.05, slide: -1100 });
+    [3520, 4186, 4699, 5274].forEach((f, i) => tone({ freq: f, type: 'sine', dur: 0.3, gain: 0.03, at: i * 0.03 }));
+    // sparkle: quick high glints
+    [2637, 3136, 3520].forEach((f, i) => tone({ freq: f, type: 'sine', dur: 0.08, gain: 0.05, at: i * 0.04 }));
+    // the chime: C - E - G - C, a fifth higher for epic and legendary
+    const lift = tier === 'rare' ? 1 : 1.5;
+    [523, 659, 784, 1046].forEach((f, i) => {
+      tone({ freq: f * lift, type: 'triangle', dur: 0.18, gain: 0.16, at: 0.14 + i * 0.08 });
+      tone({ freq: f * lift * 2, type: 'sine', dur: 0.12, gain: 0.04, at: 0.14 + i * 0.08 });
+    });
+    if (tier === 'rare') return;
+    // epic: a second, higher answer
+    [1175, 1568, 2093].forEach((f, i) => tone({ freq: f, type: 'square', dur: 0.1, gain: 0.05, at: 0.5 + i * 0.07 }));
+    if (tier !== 'legendary') return;
+    // legendary: held major chord, low root and a last sparkle
+    [784, 988, 1175, 1568].forEach((f) => tone({ freq: f, type: 'triangle', dur: 0.9, gain: 0.09, at: 0.74 }));
+    tone({ freq: 196, type: 'sawtooth', dur: 0.8, gain: 0.08, at: 0.74 });
+    tone({ freq: 98, type: 'triangle', dur: 0.9, gain: 0.18, at: 0.74 });
+    [3136, 3951, 4699].forEach((f, i) => tone({ freq: f, type: 'sine', dur: 0.1, gain: 0.04, at: 0.9 + i * 0.06 }));
+  },
+  /** Abyssal mode chosen: a deep drone under a dissonant cluster, sinking like something stirring below. */
+  abyss() {
+    const k = ABYSS_GAIN;
+    tone({ freq: 55, type: 'sawtooth', dur: 1.6, gain: 0.12 * k, slide: -18 });
+    tone({ freq: 41, type: 'sine', dur: 1.8, gain: 0.25 * k, slide: -10 });
+    [[233, 0.05], [247, 0.1], [370, 0.18]].forEach(([f, at]) => tone({ freq: f, type: 'triangle', dur: 1.2, gain: 0.05 * k, slide: -f * 0.25, at }));
+    tone({ freq: 1800, type: 'sine', dur: 0.9, gain: 0.015 * k, slide: -1500, at: 0.2 });
+  },
+  /** A found relic's shadow beating like a heart (ResultScreen): lub-dub thumps, deeper and louder with `p` (0..1). */
+  relicPulse(p = 0) {
+    const k = ABYSS_GAIN;
+    tone({ freq: 62 - p * 10, type: 'sine', dur: 0.22, gain: (0.3 + p * 0.2) * k, slide: -20 });
+    tone({ freq: 52 - p * 8, type: 'sine', dur: 0.26, gain: (0.24 + p * 0.2) * k, slide: -16, at: 0.16 });
+    tone({ freq: 311, type: 'triangle', dur: 0.4, gain: 0.03 * k, slide: -90 });
+  },
+  /** Battle lost (result screen): a short falling minor sting over a low thud. */
+  defeat() {
+    tone({ freq: 110, type: 'triangle', dur: 0.3, gain: 0.25, slide: -50 });
+    [[440, 0], [415, 0.16], [349, 0.32], [294, 0.5]].forEach(([f, at]) => {
+      tone({ freq: f, type: 'square', dur: at === 0.5 ? 0.6 : 0.15, gain: 0.06, at });
+      tone({ freq: f / 2, type: 'triangle', dur: at === 0.5 ? 0.6 : 0.15, gain: 0.12, at });
+    });
   },
   gameOver() {
     [392, 330, 262, 196].forEach((f, i) => setTimeout(() => tone({ freq: f, type: 'triangle', dur: 0.3, gain: 0.2 }), i * 180));
@@ -132,36 +237,60 @@ const LEAD = [
 ];
 
 let bgmOn = false;
-let bgmVolume = 0.6; // 0..1
+let bgmVolume = 1; // 0..1 (100% until the saved options load)
 let bgmTimer = null;
 let bgmStep = 0;
 let bgmNext = 0;
-let bus = null; // { master, echo, noise, warm }
+let bus = null; // { out, warm, noise, lane }
 let track = 'main';
 
-/** Master chain built once: warm low-pass, plus an echo send for the lead and sparkles. */
+/**
+ * Output chain built once: volume (out) -> warm low-pass -> speakers. The music itself plays
+ * through a "lane" (dry gain + its own echo send) per track: notes are scheduled ahead, so on a
+ * track switch or when the music is turned off the lane is faded out and dropped, silencing the
+ * notes it already had queued (no old loop playing over the new one) and the new loop starts
+ * right away on a fresh lane.
+ */
 function bgmBus(c) {
-  if (bus) return bus;
+  if (!bus) {
+    const out = c.createGain();
+    out.gain.value = BGM_GAIN * bgmVolume;
+    const warm = c.createBiquadFilter();
+    warm.type = 'lowpass';
+    warm.frequency.value = TRACKS[track].cutoff;
+    warm.Q.value = 0.4;
+    out.connect(warm).connect(outputNode(c));
+    const noise = c.createBuffer(1, c.sampleRate * 0.3, c.sampleRate);
+    const d = noise.getChannelData(0);
+    for (let i = 0; i < d.length; i += 1) d[i] = Math.random() * 2 - 1;
+    bus = { out, warm, noise, lane: null };
+  }
+  if (!bus.lane) bus.lane = makeLane(c);
+  return bus.lane;
+}
+
+/** One track's lane: `master` (dry) and `echo` (send) for the step functions, into bus.out. */
+function makeLane(c) {
   const master = c.createGain();
-  master.gain.value = BGM_GAIN * bgmVolume;
-  const warm = c.createBiquadFilter();
-  warm.type = 'lowpass';
-  warm.frequency.value = 3400;
-  warm.Q.value = 0.4;
-  master.connect(warm).connect(c.destination);
+  master.connect(bus.out);
   const echo = c.createDelay(1);
-  echo.delayTime.value = STEP * 3;
+  echo.delayTime.value = TRACKS[track].echo;
   const feedback = c.createGain();
   feedback.gain.value = 0.32;
   const wet = c.createGain();
   wet.gain.value = 0.28;
   echo.connect(feedback).connect(echo);
   echo.connect(wet).connect(master);
-  const noise = c.createBuffer(1, c.sampleRate * 0.3, c.sampleRate);
-  const d = noise.getChannelData(0);
-  for (let i = 0; i < d.length; i += 1) d[i] = Math.random() * 2 - 1;
-  bus = { master, echo, noise, warm };
-  return bus;
+  return { master, echo, noise: bus.noise };
+}
+
+/** Fades the current lane out over `fade` s (its queued notes and echo tail go silent) and drops it. */
+function retireLane(fade = 0.06) {
+  if (!bus?.lane || !ctx) return;
+  const { master } = bus.lane;
+  master.gain.setTargetAtTime(0, ctx.currentTime, fade / 3);
+  setTimeout(() => master.disconnect(), fade * 1000 + 300);
+  bus.lane = null;
 }
 
 /** A soft enveloped note (attack, then a decay to silence) into `dest`. */
@@ -425,11 +554,140 @@ function battleStepAt(c, b, step, when) {
   if ((bar === 7 || bar === 15) && slot >= 6) tom(c, b, when, slot === 6 ? 165 : 131);
 }
 
-/** The loops: tempo, swing, length and master brightness. */
+/*
+ * Victory, in the spirit of Inflation RPG, which swaps the battle music for a victory track when a
+ * fight is won (SeBgm.as win1_bgm, looped on the result screen). Original composition, energetic:
+ * 168 BPM in C major. A two-bar fanfare played once (a rising C-E-G-C run hit with power-chord
+ * stabs, a snare pickup, then a held high E over a big C chord and a crash), then an 8-bar loop
+ * (C - G - Am - F - C - G - F - G) with four-on-the-floor kick, backbeat snare + clap, driving
+ * octave bass, syncopated power-chord stabs, a doubled lead and a tom fill into the repeat.
+ * It enters from the battle music with a riser (TRACKS.victory.entry).
+ */
+const VICTORY_STEP = 60 / 168 / 2;
+const VICTORY_CHORDS = [
+  [36, [60, 64, 67]], [36, [60, 64, 67]], // fanfare
+  [36, [60, 64, 67]], [43, [59, 62, 67]], [45, [57, 60, 64]], [41, [57, 60, 65]],
+  [36, [60, 64, 67]], [43, [59, 62, 67]], [41, [57, 60, 65]], [43, [59, 62, 67]],
+];
+const VICTORY_LEAD = [
+  [[0, 72, 1], [1, 76, 1], [2, 79, 1], [3, 84, 2], [5, 79, 1], [6, 84, 2]],
+  [[0, 88, 1], [1, 86, 1], [2, 84, 1], [3, 88, 5]],
+  [[0, 79, 1], [1, 84, 1], [2, 88, 2], [4, 86, 1], [5, 84, 1], [6, 86, 2]],
+  [[0, 83, 2], [2, 79, 1], [3, 83, 1], [4, 86, 3], [7, 83, 1]],
+  [[0, 84, 1], [1, 88, 1], [2, 93, 2], [4, 91, 1], [5, 88, 1], [6, 84, 2]],
+  [[0, 89, 2], [2, 88, 1], [3, 86, 1], [4, 84, 2], [6, 81, 2]],
+  [[0, 79, 1], [1, 84, 1], [2, 88, 2], [4, 91, 2], [6, 88, 2]],
+  [[0, 86, 2], [2, 83, 1], [3, 86, 1], [4, 91, 3], [7, 89, 1]],
+  [[0, 88, 1], [1, 89, 1], [2, 93, 2], [4, 91, 2], [6, 89, 1], [7, 88, 1]],
+  [[0, 86, 2], [2, 88, 1], [3, 86, 1], [4, 83, 2], [6, 79, 1], [7, 83, 1]],
+];
+const VICTORY_INTRO_BARS = 2;
+
+/** Power chord (root, fifth, octave) stab, an octave above the bass. */
+function stab(c, b, when, root, dur, gain = 0.03) {
+  for (const m of [root + 24, root + 31, root + 36]) note(c, b.master, { freq: mtof(m), type: 'sawtooth', when, dur, gain, attack: 0.004 });
+}
+
+function victoryStepAt(c, b, step, when) {
+  const bar = Math.floor(step / BAR_STEPS) % VICTORY_CHORDS.length;
+  const slot = step % BAR_STEPS;
+  const [root, chord] = VICTORY_CHORDS[bar];
+  const fanfare = bar < VICTORY_INTRO_BARS;
+  const S = VICTORY_STEP;
+
+  // lead: square + triangle, doubled an octave below, with echo
+  for (const [s, m, len] of VICTORY_LEAD[bar]) {
+    if (s !== slot) continue;
+    const dur = S * len * 0.9;
+    note(c, b.master, { freq: mtof(m), type: 'square', when, dur, gain: fanfare ? 0.08 : 0.06, attack: 0.004 });
+    note(c, b.master, { freq: mtof(m), type: 'triangle', when, dur, gain: 0.08, attack: 0.004 });
+    note(c, b.master, { freq: mtof(m - 12), type: 'square', when, dur, gain: fanfare ? 0.045 : 0.03, attack: 0.004 });
+    note(c, b.echo, { freq: mtof(m), type: 'triangle', when, dur, gain: 0.045, attack: 0.004 });
+  }
+
+  if (fanfare) {
+    if (bar === 0) {
+      // hits on the run, a snare pickup into bar 2
+      if (slot === 0) noiseHit(c, b, when, { gain: 0.24, freq: 6000, q: 0.3, dur: 0.9 });
+      if (slot === 0 || slot === 3 || slot === 6) { stab(c, b, when, root, S * 1.6, 0.035); kick(c, b, when); }
+      if (slot === 7) for (let i = 0; i < 3; i += 1) noiseHit(c, b, when + i * (S / 3), { gain: 0.12 + i * 0.05, freq: 1800, q: 0.7, dur: 0.08 });
+      note(c, b.master, { freq: mtof(root + (slot % 2 ? 12 : 0)), type: 'triangle', when, dur: S * 0.85, gain: 0.3 });
+    } else if (slot === 3) {
+      // the held high note lands on a big chord, low octave and a crash
+      for (const m of [...chord, chord[0] + 12]) note(c, b.master, { freq: mtof(m + 12), type: 'sawtooth', when, dur: S * 5, gain: 0.025, attack: 0.01 });
+      stab(c, b, when, root, S * 5, 0.03);
+      note(c, b.master, { freq: mtof(root), type: 'triangle', when, dur: S * 5, gain: 0.34 });
+      note(c, b.master, { freq: mtof(root - 12), type: 'sine', when, dur: S * 5, gain: 0.22 });
+      noiseHit(c, b, when, { gain: 0.2, freq: 5000, q: 0.3, dur: 1.1 });
+      kick(c, b, when);
+    } else if (slot < 3) {
+      kick(c, b, when);
+      note(c, b.master, { freq: mtof(root + 12), type: 'triangle', when, dur: S * 0.8, gain: 0.26 });
+    }
+    return;
+  }
+
+  // loop
+  if (slot === 0) for (const m of chord) note(c, b.master, { freq: mtof(m), type: 'triangle', when, dur: S * BAR_STEPS * 0.95, gain: 0.03, attack: 0.05 });
+  // driving octave bass on every 8th
+  const bm = root + (slot % 2 ? 12 : 0);
+  note(c, b.master, { freq: mtof(bm), type: 'triangle', when, dur: S * 0.85, gain: 0.28 });
+  note(c, b.master, { freq: mtof(bm), type: 'square', when, dur: S * 0.5, gain: 0.03 });
+  // syncopated power-chord stabs
+  if (slot === 0 || slot === 3 || slot === 6) stab(c, b, when, root, S * 0.8);
+  // sparkle arpeggio on the off-beats, two octaves up
+  if (slot % 2 === 1) note(c, b.echo, { freq: mtof(chord[(slot >> 1) % chord.length] + 24), type: 'square', when, dur: S * 0.7, gain: 0.022, attack: 0.003 });
+  // drums: four on the floor, backbeat snare + clap, open hats on the off-beats
+  if (slot % 2 === 0) kick(c, b, when);
+  if (slot === 2 || slot === 6) {
+    noiseHit(c, b, when, { gain: 0.24, freq: 1800, q: 0.7, dur: 0.13 });
+    noiseHit(c, b, when + 0.012, { gain: 0.12, freq: 1200, q: 1.4, dur: 0.08 });
+  }
+  noiseHit(c, b, when, { gain: slot % 2 ? 0.09 : 0.05, freq: 9500, q: 1, dur: slot % 2 ? 0.09 : 0.03 });
+  // tom fill at the end of the loop, back into its top
+  if (bar === VICTORY_CHORDS.length - 1 && slot >= 4) tom(c, b, when, [196, 165, 147, 110][slot - 4]);
+}
+
+/** Transition riser: filtered noise and a tone sweeping up over `dur`, into lane `b`. */
+function riser(c, b, when, dur) {
+  const s = c.createBufferSource();
+  s.buffer = b.noise;
+  s.loop = true;
+  const f = c.createBiquadFilter();
+  f.type = 'bandpass';
+  f.Q.value = 1.2;
+  f.frequency.setValueAtTime(500, when);
+  f.frequency.exponentialRampToValueAtTime(7000, when + dur);
+  const g = c.createGain();
+  g.gain.setValueAtTime(0.001, when);
+  g.gain.linearRampToValueAtTime(0.3, when + dur);
+  g.gain.linearRampToValueAtTime(0, when + dur + 0.05);
+  s.connect(f).connect(g).connect(b.master);
+  s.start(when);
+  s.stop(when + dur + 0.06);
+  const o = c.createOscillator();
+  const og = c.createGain();
+  o.type = 'sawtooth';
+  o.frequency.setValueAtTime(220, when);
+  o.frequency.exponentialRampToValueAtTime(1760, when + dur);
+  og.gain.setValueAtTime(0.001, when);
+  og.gain.linearRampToValueAtTime(0.035, when + dur);
+  og.gain.linearRampToValueAtTime(0, when + dur + 0.04);
+  o.connect(og).connect(b.master);
+  o.start(when);
+  o.stop(when + dur + 0.05);
+}
+
+/**
+ * The loops: tempo, swing, length and master brightness. `loopFrom` (bar): where the loop
+ * restarts, for tracks with an intro played once (victory's fanfare).
+ */
 const TRACKS = {
   main: { step: STEP, swing: SWING, bars: CHORDS.length, cutoff: 3400, echo: STEP * 3, stepAt: bgmStepAt },
   battle: { step: BATTLE_STEP, swing: BATTLE_STEP * 0.08, bars: BATTLE_CHORDS.length, cutoff: 4800, echo: BATTLE_STEP * 3, stepAt: battleStepAt },
   boss: { step: BOSS_STEP, swing: 0, bars: BOSS_CHORDS.length, cutoff: 6500, echo: BOSS_STEP * 3, stepAt: bossStepAt },
+  // entry: the old loop fades over `fade` s while a riser builds; the fanfare lands after `lead` s
+  victory: { step: VICTORY_STEP, swing: 0, bars: VICTORY_CHORDS.length, loopFrom: VICTORY_INTRO_BARS, cutoff: 7000, echo: VICTORY_STEP * 3, stepAt: victoryStepAt, entry: { fade: 0.25, lead: 0.34 } },
 };
 
 function bgmSchedule() {
@@ -441,7 +699,8 @@ function bgmSchedule() {
   while (bgmNext < c.currentTime + 0.5) {
     const when = bgmNext + (bgmStep % 2 ? tr.swing : 0);
     tr.stepAt(c, b, bgmStep, when);
-    bgmStep = (bgmStep + 1) % (tr.bars * BAR_STEPS);
+    bgmStep += 1;
+    if (bgmStep >= tr.bars * BAR_STEPS) bgmStep = (tr.loopFrom ?? 0) * BAR_STEPS;
     bgmNext += tr.step;
   }
 }
@@ -450,17 +709,26 @@ export const bgm = {
   /** Music volume 0..1 (applies right away). */
   setVolume(v) {
     bgmVolume = Math.max(0, Math.min(1, Number(v) || 0));
-    if (bus && ctx) bus.master.gain.setTargetAtTime(BGM_GAIN * bgmVolume, ctx.currentTime, 0.05);
+    if (bus && ctx) bus.out.gain.setTargetAtTime(BGM_GAIN * bgmVolume, ctx.currentTime, 0.05);
   },
-  /** Switches the loop ('main' | 'battle' | 'boss'); the new one starts from its top on the next step. */
+  /**
+   * Switches the loop ('main' | 'battle' | 'boss' | 'victory'): the old one is cut (its queued notes too) and
+   * the new one starts from its top right away.
+   */
   setTrack(name) {
     if (!TRACKS[name] || name === track) return;
     track = name;
     bgmStep = 0;
-    if (bus && ctx) {
-      bus.warm.frequency.setTargetAtTime(TRACKS[name].cutoff, ctx.currentTime, 0.05);
-      bus.echo.delayTime.setTargetAtTime(TRACKS[name].echo, ctx.currentTime, 0.05);
+    if (bus && ctx) bus.warm.frequency.setTargetAtTime(TRACKS[name].cutoff, ctx.currentTime, 0.05);
+    const entry = TRACKS[name].entry;
+    retireLane(entry?.fade);
+    bgmNext = 0; // bgmSchedule restarts the grid just ahead of now
+    if (entry && bgmOn && ctx?.state === 'running') {
+      // a riser on the new lane while the old one fades; the new loop starts when it peaks
+      riser(ctx, bgmBus(ctx), ctx.currentTime, entry.lead);
+      bgmNext = ctx.currentTime + entry.lead;
     }
+    bgmSchedule();
   },
   setEnabled(on) {
     bgmOn = !!on;
@@ -471,6 +739,7 @@ export const bgm = {
     } else if (!bgmOn && bgmTimer) {
       clearInterval(bgmTimer);
       bgmTimer = null;
+      retireLane(); // stop now, not after the notes already queued
     }
   },
   /** Call from a user gesture so the AudioContext is allowed to start. */

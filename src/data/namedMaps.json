@@ -1,0 +1,769 @@
+{
+  "maps": [
+    {
+      "id": 101,
+      "art": "entrada_castelo",
+      "w": 1200,
+      "h": 900,
+      "grid": {
+        "cols": 1,
+        "rows": 1,
+        "cells": [
+          [
+            0
+          ]
+        ]
+      },
+      "neighbours": {
+        "up": -1,
+        "right": -1,
+        "down": -1,
+        "left": -1
+      },
+      "areas": [
+        {
+          "id": 0,
+          "level": 1,
+          "pool": "pool_1_0",
+          "weights": [
+            10,
+            10,
+            10,
+            10,
+            10
+          ],
+          "poolHard": null,
+          "weightsHard": null,
+          "expScale": -2,
+          "baseHp": null,
+          "baseAtk": null,
+          "label": [
+            50,
+            50
+          ],
+          "bounds": {
+            "x": 0,
+            "y": 0,
+            "w": 1200,
+            "h": 900
+          }
+        }
+      ],
+      "bosses": []
+    },
+    {
+      "id": 102,
+      "art": "salao_castelo",
+      "w": 800,
+      "h": 600,
+      "grid": {
+        "cols": 1,
+        "rows": 1,
+        "cells": [
+          [
+            0
+          ]
+        ]
+      },
+      "neighbours": {
+        "up": -1,
+        "right": -1,
+        "down": -1,
+        "left": -1
+      },
+      "areas": [
+        {
+          "id": 0,
+          "level": 1,
+          "pool": "pool_1_0",
+          "weights": [
+            10,
+            10,
+            10,
+            10,
+            10
+          ],
+          "poolHard": null,
+          "weightsHard": null,
+          "expScale": -2,
+          "baseHp": null,
+          "baseAtk": null,
+          "label": [
+            50,
+            50
+          ],
+          "bounds": {
+            "x": 0,
+            "y": 0,
+            "w": 800,
+            "h": 600
+          }
+        }
+      ],
+      "bosses": []
+    },
+    {
+      "id": 103,
+      "art": "cozinha_castelo",
+      "w": 800,
+      "h": 600,
+      "grid": {
+        "cols": 1,
+        "rows": 1,
+        "cells": [
+          [
+            0
+          ]
+        ]
+      },
+      "neighbours": {
+        "up": -1,
+        "right": -1,
+        "down": -1,
+        "left": -1
+      },
+      "areas": [
+        {
+          "id": 0,
+          "level": 1,
+          "pool": "pool_1_0",
+          "weights": [
+            10,
+            10,
+            10,
+            10,
+            10
+          ],
+          "poolHard": null,
+          "weightsHard": null,
+          "expScale": -2,
+          "baseHp": null,
+          "baseAtk": null,
+          "label": [
+            50,
+            50
+          ],
+          "bounds": {
+            "x": 0,
+            "y": 0,
+            "w": 800,
+            "h": 600
+          }
+        }
+      ],
+      "bosses": []
+    },
+    {
+      "id": 104,
+      "art": "trono_castelo",
+      "w": 650,
+      "h": 750,
+      "grid": {
+        "cols": 1,
+        "rows": 1,
+        "cells": [
+          [
+            0
+          ]
+        ]
+      },
+      "neighbours": {
+        "up": -1,
+        "right": -1,
+        "down": -1,
+        "left": -1
+      },
+      "areas": [
+        {
+          "id": 0,
+          "level": 1,
+          "pool": "pool_1_0",
+          "weights": [
+            10,
+            10,
+            10,
+            10,
+            10
+          ],
+          "poolHard": null,
+          "weightsHard": null,
+          "expScale": -2,
+          "baseHp": null,
+          "baseAtk": null,
+          "label": [
+            50,
+            50
+          ],
+          "bounds": {
+            "x": 0,
+            "y": 0,
+            "w": 650,
+            "h": 750
+          }
+        }
+      ],
+      "bosses": []
+    },
+    {
+      "id": 105,
+      "art": "maravilhas_castelo",
+      "w": 900,
+      "h": 650,
+      "grid": {
+        "cols": 1,
+        "rows": 1,
+        "cells": [
+          [
+            0
+          ]
+        ]
+      },
+      "neighbours": {
+        "up": -1,
+        "right": -1,
+        "down": -1,
+        "left": -1
+      },
+      "areas": [
+        {
+          "id": 0,
+          "level": 1,
+          "pool": "pool_1_0",
+          "weights": [
+            10,
+            10,
+            10,
+            10,
+            10
+          ],
+          "poolHard": null,
+          "weightsHard": null,
+          "expScale": -2,
+          "baseHp": null,
+          "baseAtk": null,
+          "label": [
+            50,
+            50
+          ],
+          "bounds": {
+            "x": 0,
+            "y": 0,
+            "w": 900,
+            "h": 650
+          }
+        }
+      ],
+      "bosses": []
+    },
+    {
+      "id": 106,
+      "art": "caverna_cristal",
+      "w": 1600,
+      "h": 1600,
+      "grid": {
+        "cols": 1,
+        "rows": 1,
+        "cells": [
+          [
+            0
+          ]
+        ]
+      },
+      "neighbours": {
+        "up": -1,
+        "right": -1,
+        "down": -1,
+        "left": -1
+      },
+      "areas": [
+        {
+          "id": 0,
+          "level": 1,
+          "pool": "pool_1_0",
+          "weights": [
+            10,
+            10,
+            10,
+            10,
+            10
+          ],
+          "poolHard": null,
+          "weightsHard": null,
+          "expScale": -2,
+          "baseHp": null,
+          "baseAtk": null,
+          "label": [
+            50,
+            50
+          ],
+          "bounds": {
+            "x": 0,
+            "y": 0,
+            "w": 1600,
+            "h": 1600
+          }
+        }
+      ],
+      "bosses": []
+    },
+    {
+      "id": 107,
+      "art": "clareira_infernal",
+      "w": 1200,
+      "h": 1200,
+      "grid": {
+        "cols": 1,
+        "rows": 1,
+        "cells": [
+          [
+            0
+          ]
+        ]
+      },
+      "neighbours": {
+        "up": -1,
+        "right": -1,
+        "down": -1,
+        "left": -1
+      },
+      "areas": [
+        {
+          "id": 0,
+          "level": 1,
+          "pool": "pool_1_0",
+          "weights": [
+            10,
+            10,
+            10,
+            10,
+            10
+          ],
+          "poolHard": null,
+          "weightsHard": null,
+          "expScale": -2,
+          "baseHp": null,
+          "baseAtk": null,
+          "label": [
+            50,
+            50
+          ],
+          "bounds": {
+            "x": 0,
+            "y": 0,
+            "w": 1200,
+            "h": 1200
+          }
+        }
+      ],
+      "bosses": []
+    },
+    {
+      "id": 108,
+      "art": "caverna_profunda",
+      "w": 1200,
+      "h": 1200,
+      "grid": {
+        "cols": 1,
+        "rows": 1,
+        "cells": [
+          [
+            0
+          ]
+        ]
+      },
+      "neighbours": {
+        "up": -1,
+        "right": -1,
+        "down": -1,
+        "left": -1
+      },
+      "areas": [
+        {
+          "id": 0,
+          "level": 1,
+          "pool": "pool_1_0",
+          "weights": [
+            10,
+            10,
+            10,
+            10,
+            10
+          ],
+          "poolHard": null,
+          "weightsHard": null,
+          "expScale": -2,
+          "baseHp": null,
+          "baseAtk": null,
+          "label": [
+            50,
+            50
+          ],
+          "bounds": {
+            "x": 0,
+            "y": 0,
+            "w": 1200,
+            "h": 1200
+          }
+        }
+      ],
+      "bosses": []
+    },
+    {
+      "id": 109,
+      "art": "ninho_do_grifo",
+      "w": 1200,
+      "h": 1200,
+      "grid": {
+        "cols": 1,
+        "rows": 1,
+        "cells": [
+          [
+            0
+          ]
+        ]
+      },
+      "neighbours": {
+        "up": -1,
+        "right": -1,
+        "down": -1,
+        "left": -1
+      },
+      "areas": [
+        {
+          "id": 0,
+          "level": 1,
+          "pool": "pool_1_0",
+          "weights": [
+            10,
+            10,
+            10,
+            10,
+            10
+          ],
+          "poolHard": null,
+          "weightsHard": null,
+          "expScale": -2,
+          "baseHp": null,
+          "baseAtk": null,
+          "label": [
+            50,
+            50
+          ],
+          "bounds": {
+            "x": 0,
+            "y": 0,
+            "w": 1200,
+            "h": 1200
+          }
+        }
+      ],
+      "bosses": []
+    },
+    {
+      "id": 110,
+      "art": "inferno",
+      "w": 1200,
+      "h": 1200,
+      "grid": {
+        "cols": 1,
+        "rows": 1,
+        "cells": [
+          [
+            0
+          ]
+        ]
+      },
+      "neighbours": {
+        "up": -1,
+        "right": -1,
+        "down": -1,
+        "left": -1
+      },
+      "areas": [
+        {
+          "id": 0,
+          "level": 1,
+          "pool": "pool_1_0",
+          "weights": [
+            10,
+            10,
+            10,
+            10,
+            10
+          ],
+          "poolHard": null,
+          "weightsHard": null,
+          "expScale": -2,
+          "baseHp": null,
+          "baseAtk": null,
+          "label": [
+            50,
+            50
+          ],
+          "bounds": {
+            "x": 0,
+            "y": 0,
+            "w": 1200,
+            "h": 1200
+          }
+        }
+      ],
+      "bosses": []
+    },
+    {
+      "id": 111,
+      "art": "hell1",
+      "w": 1200,
+      "h": 1200,
+      "grid": {
+        "cols": 1,
+        "rows": 1,
+        "cells": [
+          [
+            0
+          ]
+        ]
+      },
+      "neighbours": {
+        "up": -1,
+        "right": -1,
+        "down": -1,
+        "left": -1
+      },
+      "areas": [
+        {
+          "id": 0,
+          "level": 1,
+          "pool": "pool_1_0",
+          "weights": [
+            10,
+            10,
+            10,
+            10,
+            10
+          ],
+          "poolHard": null,
+          "weightsHard": null,
+          "expScale": -2,
+          "baseHp": null,
+          "baseAtk": null,
+          "label": [
+            50,
+            50
+          ],
+          "bounds": {
+            "x": 0,
+            "y": 0,
+            "w": 1200,
+            "h": 1200
+          }
+        }
+      ],
+      "bosses": []
+    },
+    {
+      "id": 112,
+      "art": "hell2",
+      "w": 1200,
+      "h": 1200,
+      "grid": {
+        "cols": 1,
+        "rows": 1,
+        "cells": [
+          [
+            0
+          ]
+        ]
+      },
+      "neighbours": {
+        "up": -1,
+        "right": -1,
+        "down": -1,
+        "left": -1
+      },
+      "areas": [
+        {
+          "id": 0,
+          "level": 1,
+          "pool": "pool_1_0",
+          "weights": [
+            10,
+            10,
+            10,
+            10,
+            10
+          ],
+          "poolHard": null,
+          "weightsHard": null,
+          "expScale": -2,
+          "baseHp": null,
+          "baseAtk": null,
+          "label": [
+            50,
+            50
+          ],
+          "bounds": {
+            "x": 0,
+            "y": 0,
+            "w": 1200,
+            "h": 1200
+          }
+        }
+      ],
+      "bosses": []
+    },
+    {
+      "id": 113,
+      "art": "hell3",
+      "w": 1200,
+      "h": 1200,
+      "grid": {
+        "cols": 1,
+        "rows": 1,
+        "cells": [
+          [
+            0
+          ]
+        ]
+      },
+      "neighbours": {
+        "up": -1,
+        "right": -1,
+        "down": -1,
+        "left": -1
+      },
+      "areas": [
+        {
+          "id": 0,
+          "level": 1,
+          "pool": "pool_1_0",
+          "weights": [
+            10,
+            10,
+            10,
+            10,
+            10
+          ],
+          "poolHard": null,
+          "weightsHard": null,
+          "expScale": -2,
+          "baseHp": null,
+          "baseAtk": null,
+          "label": [
+            50,
+            50
+          ],
+          "bounds": {
+            "x": 0,
+            "y": 0,
+            "w": 1200,
+            "h": 1200
+          }
+        }
+      ],
+      "bosses": []
+    },
+    {
+      "id": 114,
+      "art": "hell_final",
+      "w": 1200,
+      "h": 1200,
+      "grid": {
+        "cols": 1,
+        "rows": 1,
+        "cells": [
+          [
+            0
+          ]
+        ]
+      },
+      "neighbours": {
+        "up": -1,
+        "right": -1,
+        "down": -1,
+        "left": -1
+      },
+      "areas": [
+        {
+          "id": 0,
+          "level": 1,
+          "pool": "pool_1_0",
+          "weights": [
+            10,
+            10,
+            10,
+            10,
+            10
+          ],
+          "poolHard": null,
+          "weightsHard": null,
+          "expScale": -2,
+          "baseHp": null,
+          "baseAtk": null,
+          "label": [
+            50,
+            50
+          ],
+          "bounds": {
+            "x": 0,
+            "y": 0,
+            "w": 1200,
+            "h": 1200
+          }
+        }
+      ],
+      "bosses": []
+    },
+    {
+      "id": 115,
+      "art": "hell_secret_boss",
+      "w": 1200,
+      "h": 1200,
+      "grid": {
+        "cols": 1,
+        "rows": 1,
+        "cells": [
+          [
+            0
+          ]
+        ]
+      },
+      "neighbours": {
+        "up": -1,
+        "right": -1,
+        "down": -1,
+        "left": -1
+      },
+      "areas": [
+        {
+          "id": 0,
+          "level": 1,
+          "pool": "pool_1_0",
+          "weights": [
+            10,
+            10,
+            10,
+            10,
+            10
+          ],
+          "poolHard": null,
+          "weightsHard": null,
+          "expScale": -2,
+          "baseHp": null,
+          "baseAtk": null,
+          "label": [
+            50,
+            50
+          ],
+          "bounds": {
+            "x": 0,
+            "y": 0,
+            "w": 1200,
+            "h": 1200
+          }
+        }
+      ],
+      "bosses": []
+    }
+  ]
+}

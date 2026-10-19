@@ -6,8 +6,11 @@ import { weightedPick } from './weighted.js';
 import { scaledBossGold } from './eventBoss.js';
 
 function toDef(entry, area, hardMode, key) {
-  const hp = entry.hpMul != null ? area.baseHp * entry.hpMul : entry.hp;
-  const atk = entry.atkMul != null ? area.baseAtk * entry.atkMul : entry.atk;
+  // statScale: the area plays at another level than its enemies were made for (editorMap.js)
+  const s = area.statScale;
+  const scaled = (v, k) => (s ? Math.max(k === 'gold' ? 0 : 1, Math.round(v * s[k])) : v);
+  const hp = scaled(entry.hpMul != null ? area.baseHp * entry.hpMul : entry.hp, 'hp');
+  const atk = scaled(entry.atkMul != null ? area.baseAtk * entry.atkMul : entry.atk, 'atk');
   return {
     id: key,
     name: entry.name,
@@ -15,7 +18,7 @@ function toDef(entry, area, hardMode, key) {
     scale: entry.scale,
     hp,
     atk,
-    gold: entry.gold,
+    gold: scaled(entry.gold, 'gold'),
     expParam: entry.expParam,
     expMode: area.expScale === -2 ? 'raw' : 'scaled',
     expScale: area.expScale,
@@ -25,8 +28,16 @@ function toDef(entry, area, hardMode, key) {
   };
 }
 
-/** Regular enemy of an area. `pools` is data/enemies.json pools. */
+/**
+ * Regular enemy of an area. `pools` is data/enemies.json pools. An area with its own monsters
+ * (areaMonsters.js, area.monsters) picks among them by weight, each rescaled to the area's level.
+ */
 export function pickAreaEnemy({ area, pools, hardMode }, rng) {
+  const own = area.monsters ? (hardMode && area.monsters.hard.length ? area.monsters.hard : area.monsters.normal) : null;
+  if (own?.length) {
+    const m = own[Math.min(weightedPick(own.map((x) => x.weight), rng), own.length - 1)];
+    return toDef(m.entry, { ...area, baseHp: m.baseHp, baseAtk: m.baseAtk, statScale: m.scale }, hardMode, m.key);
+  }
   const poolKey = hardMode && area.poolHard ? area.poolHard : area.pool;
   const weights = hardMode && area.weightsHard ? area.weightsHard : area.weights;
   const pool = pools[poolKey];
@@ -56,6 +67,7 @@ export function mapBossDef(bossData, bossId, areaLevel) {
     hardDrops: b.hardDrops,
     bpBonus: b.bpBonus,
     areaLevel,
+    level: b.level ?? areaLevel, // the boss's own level (customBosses.js withCustomBosses)
   };
 }
 

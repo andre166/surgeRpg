@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
+import fs from 'node:fs';
 import { parseTriggers, spawnCell, triggerMapId, cellAt, cellCentre } from '../core/world/triggers.js';
+import { createWorld } from '../core/world/world.js';
+import worldData from '../data/world.json';
+import namedMaps from '../data/namedMaps.json';
 
 // shapes saved by the map editor (map1.json)
 const art = {
@@ -33,6 +37,19 @@ describe('map triggers', () => {
     expect(triggerMapId(other, 1)).toBe(2);
     expect(triggerMapId({ map: 'map12' }, 1)).toBe(12);
     expect(triggerMapId({ map: 'cave' }, 1)).toBeNull();
+  });
+
+  it('named maps (namedMaps.json) are reached by their editor file name', () => {
+    const world = createWorld({ ...worldData, namedMaps: namedMaps.maps });
+    const castle = namedMaps.maps.find((m) => m.art === 'entrada_castelo');
+    expect(triggerMapId({ map: 'entrada_castelo' }, 1, world)).toBe(castle.id);
+    expect(world.map(castle.id).areas).toHaveLength(1);
+    expect(triggerMapId({ map: 'map2' }, 1, world)).toBe(2);
+    // every trigger of the castle maps leads to a known map
+    for (const m of namedMaps.maps) {
+      const file = JSON.parse(fs.readFileSync(`public/assets/maps/${m.art}.json`, 'utf8'));
+      for (const t of parseTriggers(file)) expect(world.map(triggerMapId(t, m.id, world))).not.toBeNull();
+    }
   });
 
   it('cells are stretched over the map size', () => {

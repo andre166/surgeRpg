@@ -1,15 +1,17 @@
 import React, { useEffect, useState } from 'react';
-import { useGame, SCREEN } from '../stores/gameStore.js';
+import { useGame, SCREEN, data } from '../stores/gameStore.js';
 import FarmIcon from '../components/FarmIcon.jsx';
+import { effectText, usableOnMap } from '../components/farmText.js';
 import CropSprite from '../components/CropSprite.jsx';
 import {
-  CROPS, MATERIALS, POTIONS, ELIXIRS, MINE_MAX_LEVEL, itemCount, canAfford, plotState, mineRates, mineStored,
-  mineUpgradeCost, canUpgradeMine, labState, farmDef, cropTimeMult, mineSpeed, labTimeMult,
+  CROPS, MATERIALS, POTIONS, CAULDRON, ELIXIRS, MINE_MAX_LEVEL, farmSeedCost, farmBrewFee, potionRechargeLeft, farmLabs, labSlotsOwned, freeLabSlot, creatureWage, onStrike, WAGE_PERIOD, itemCount, canAfford, plotState, mineRates, mineStored,
+  mineUpgradeCost, canUpgradeMine, mineCollectCost, labState, farmDef, cropTimeMult, mineSpeed, labTimeMult,
   CREATURES, STABLE_SLOTS, adoptStatus, creatureNextIn, plotsOwned, plotBuyStatus, PLOT_PRICES,
   AUTO_REPLANT_MIN_BASE, autoReplantUnlocked, HARVEST_ALL_MIN_BASE, harvestAllUnlocked,
   UNLOCK_PRICES, ownedCount, isOwned, unlockBuyStatus,
 } from '../../core/farm.js';
-import { baseAbilityLevel } from '../../core/progression/characters.js';
+import { bossLevel } from '../../core/progression/characters.js';
+import { slimeKingWins } from '../../core/bestiary.js';
 import { fmtShort } from '../components/format.js';
 import { Creature } from '../components/Sprite.jsx';
 import { useT } from '../i18n/index.js';
@@ -56,6 +58,16 @@ function creatureArea(c) {
 }
 
 /** Avatar stack of the stable creatures working in one farm area (hover for details). */
+/** A creature's wage: gold paid from the run every WAGE_PERIOD. */
+function Wage({ id, ctx, t }) {
+  const wage = creatureWage(id, ctx);
+  return (
+    <span className={`small plot-price creature-wage ${ctx.gold < wage ? 'short' : ''}`} title={t('farm.wageHint')}>
+      <PixelIcon name="coins" size={14} />{t('farm.wage', { gold: fmtShort(wage), time: fmtTime(WAGE_PERIOD) })}
+    </span>
+  );
+}
+
 function CreatureStack({ farm, area, now, t }) {
   const working = (farm.stable ?? []).map((st) => ({ st, c: farmDef(st.creature) })).filter(({ c }) => c && creatureArea(c) === area);
   if (!working.length) return null;
@@ -100,37 +112,65 @@ function UnlockNeed({ price, base, t }) {
   );
 }
 
+/** What a plot or unlock needs: the base level, Slime King victories, or both (the last plots). */
+function PlotNeed({ price, base, slimes, t }) {
+  if (!price.slimeKings) return <UnlockNeed price={price} base={base} t={t} />;
+  return (
+    <>
+      {price.baseLevel > 0 && <UnlockNeed price={price} base={base} t={t} />}
+      <span className={`small plot-need ${slimes >= price.slimeKings ? 'met' : ''}`}>
+        {t('farm.plotSlimeKings', { cur: Math.min(slimes, price.slimeKings), n: price.slimeKings })}
+      </span>
+    </>
+  );
+}
+
 /**
  * A crop / vein / recipe / stall not bought yet (farm.UNLOCK_PRICES): padlock, its name and the base
  * level it needs; the next one in order also gets the buy button with its gold price.
  */
-function Locked({ kind, index, farm, base, gold, onBuy, t, className = 'recipe', icon = null, name = null }) {
+function Locked({ kind, index, farm, base, slimes, gold, onBuy, t, className = 'recipe', icon = null, name = null }) {
   const price = UNLOCK_PRICES[kind][index];
   const next = index === ownedCount(farm, kind);
-  const buy = next ? unlockBuyStatus(farm, kind, gold, base) : 'locked';
+  const buy = next ? unlockBuyStatus(farm, kind, gold, base, slimes) : 'locked';
   return (
     <div className={`${className} unlock-locked`} aria-label={t('farm.plotLocked')}>
       <span className="plot-lock">{buy === 'ok' || buy === 'gold' ? '🔓' : '🔒'}</span>
       {icon}
       <div className="recipe-body">
         {name && <b>{name}</b>}
-        <UnlockNeed price={price} base={base} t={t} />
+        <PlotNeed price={price} base={base} slimes={slimes} t={t} />
       </div>
       {next && (
-        <button className={`btn small unlock-buy ${buy === 'ok' ? 'primary' : ''}`} disabled={buy !== 'ok'} onClick={(e) => { e.stopPropagation(); onBuy(kind); }}>
-          {t('farm.buyUnlock')} <span className={`plot-price ${buy === 'gold' ? 'short' : ''}`}><PixelIcon name="coins" size={14} />{fmtShort(price.gold)}</span>
+        <button className={`btn small unlock-buy ${buy === 'ok' ? 'primary' : ''}`} disabled={buy !== 'ok'} onClick={(e) => { e.stopPropagation(); onBuy(kind); }} aria-label={`${t('farm.buyUnlock')} ${fmtShort(price.gold)}`} title={t('farm.buyUnlock')}>
+          <span className={`plot-price ${buy === 'gold' ? 'short' : ''}`}><PixelIcon name="coins" size={14} />{fmtShort(price.gold)}</span>
         </button>
       )}
     </div>
   );
 }
 
-function effectText(t, def) {
-  if (def.effect) return def.effect.kind === 'bp' ? t('farm.fx.bp', { n: def.effect.amount }) : t('farm.fx.battleHeal');
-  const parts = [];
-  for (const [k, v] of Object.entries(def.buff.pct ?? {})) parts.push(`${t(`stat.${k}`)} +${Math.round(v * 100)}%`);
-  for (const [k, v] of Object.entries(def.buff.mods ?? {})) parts.push(t(`farm.fx.${k}`, { n: Math.round(v * 100) }));
-  return `${parts.join(' · ')} · ${t('farm.fx.battles', { n: def.battles })}`;
+
+/** Farm help: how every part of the farm works (the "?" tab). */
+const HELP = ['unlocks', 'costs', 'garden', 'mine', 'lab', 'cauldron', 'stable', 'store'];
+function FarmHelp({ t, onClose }) {
+  return (
+    <div className="modal auto-modal" onPointerDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="auto-panel echo-info farm-help" role="dialog" aria-label={t('farm.help.title')}>
+        <div className="auto-head">
+          <h2><PixelIcon name="info" size={20} />{t('farm.help.title')}</h2>
+        </div>
+        <ul className="echo-info-list">
+          {HELP.map((k) => (
+            <li key={k}><b>{t(`farm.help.${k}.title`)}</b> {t(`farm.help.${k}`, { wage: fmtTime(WAGE_PERIOD) })}</li>
+          ))}
+        </ul>
+        <div className="row auto-foot">
+          <button className="btn primary" data-escape data-primary onClick={onClose}>{t('common.gotIt')}</button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 /** Farm: Corrupted Garden, Abandoned Mine, Laboratory and the Storehouse. */
@@ -147,6 +187,7 @@ export default function FarmScreen() {
   const buyPlot = useGame((s) => s.buyFarmPlot);
   const buyFarmUnlock = useGame((s) => s.buyFarmUnlock);
   const [tab, setTab] = useState('garden');
+  const [help, setHelp] = useState(false);
   const [picking, setPicking] = useState(null); // plot index choosing a crop
   const [removing, setRemoving] = useState(null); // plot index asking to confirm removal
   const [now, setNow] = useState(Date.now());
@@ -155,7 +196,7 @@ export default function FarmScreen() {
     const id = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(id);
   }, []);
-  // stable creatures work in the background: catch up on open and every 5 s
+  // stable creatures also work in the background on every screen (App.jsx); here they catch up on open and every 5 s
   useEffect(() => {
     farmDo('tick');
     const id = setInterval(() => farmDo('tick'), 5000);
@@ -168,12 +209,17 @@ export default function FarmScreen() {
   const cropMult = cropTimeMult(farm);
   const readyPlots = farm.plots.filter((p) => plotState(p, now, cropMult).status === 'ready').length;
   const stored = mineStored(farm.mine, now, mineSpeed(farm), ownedCount(farm, 'veins'));
-  const base = baseAbilityLevel(profile.bossWins);
+  const base = bossLevel(profile.bossWins);
+  const slimes = slimeKingWins(profile);
   const gold = run?.gold ?? 0;
   const onBuy = (kind) => { if (buyFarmUnlock(kind) === 'ok') toast(t('farm.unlockBought'), 1400); };
-  const lockProps = { farm, base, gold, onBuy, t };
-  const lab = labState(farm.lab, now, labTimeMult(farm));
-  const badge = { garden: readyPlots, mine: Object.values(stored).some((n) => n > 0) ? '•' : 0, lab: lab.status === 'ready' ? '•' : 0, stable: 0, store: 0 };
+  const lockProps = { farm, base, slimes, gold, onBuy, t };
+  const wageCtx = { gold, baseLevel: base, slimeWins: slimes };
+  const labs = farmLabs(farm);
+  const labSlots = labSlotsOwned(farm);
+  const labFree = freeLabSlot(farm) >= 0;
+  const labReady = labs.some((l) => labState(l, now, labTimeMult(farm)).status === 'ready');
+  const badge = { garden: readyPlots, mine: Object.values(stored).some((n) => n > 0) ? '•' : 0, lab: labReady ? '•' : 0, stable: 0, store: 0 };
 
   return (
     <div className="screen farm hero-screen wood-screen">
@@ -186,7 +232,12 @@ export default function FarmScreen() {
             {badge[k] ? <span className="hero-tab-dot" aria-label={t('farm.ready')} /> : null}
           </button>
         ))}
+        <button className="hero-tab farm-help-tab" onClick={() => setHelp(true)} title={t('farm.help.title')} aria-label={t('farm.help.title')}>
+          <PixelIcon name="info" size={22} />
+          <span className="hero-tab-label">{t('farm.help.short')}</span>
+        </button>
       </nav>
+      {help && <FarmHelp t={t} onClose={() => setHelp(false)} />}
 
       {tab === 'garden' && (
         <section className="panel farm-panel garden">
@@ -194,7 +245,7 @@ export default function FarmScreen() {
             <h2>{t('farm.garden')}</h2>
             {/* Harvest all on the title line, at the right, compact (golden when something is ready) */}
             {/* unlocks with the base level: until then it is locked and shows what it needs */}
-            {harvestAllUnlocked(baseAbilityLevel(profile.bossWins)) ? (
+            {harvestAllUnlocked(bossLevel(profile.bossWins)) ? (
               <button className={`btn small harvest-all ${readyPlots ? 'primary' : ''}`} disabled={!readyPlots} onClick={() => farmDo('harvestAll')}>
                 <PixelIcon name="sprout" size={18} />{t('farm.harvestAll')}
               </button>
@@ -214,7 +265,7 @@ export default function FarmScreen() {
               if (i >= owned) {
                 // every plot not bought yet shows a padlock and the base level it needs (current/needed)
                 const price = PLOT_PRICES[i];
-                const need = <UnlockNeed price={price} base={base} t={t} />;
+                const need = <PlotNeed price={price} base={base} slimes={slimes} t={t} />;
                 if (i > owned) {
                   return (
                     <div key={i} className="plot plot-locked" aria-label={t('farm.plotLocked')}>
@@ -223,16 +274,17 @@ export default function FarmScreen() {
                     </div>
                   );
                 }
-                const buy = plotBuyStatus(farm, run?.gold ?? 0, base);
+                const buy = plotBuyStatus(farm, run?.gold ?? 0, base, slimes);
                 return (
                   <button
                     key={i}
                     className={`plot plot-buy ${buy === 'ok' ? 'can-buy' : ''}`}
                     disabled={buy !== 'ok'}
                     onClick={() => { if (buyPlot() === 'ok') toast(t('farm.plotBought'), 1400); }}
+                    aria-label={t('farm.buyPlot')}
+                    title={t('farm.buyPlot')}
                   >
                     <span className="plot-lock">{buy === 'level' ? '🔒' : '🔓'}</span>
-                    <span className="small">{t('farm.buyPlot')}</span>
                     {need}
                     {buy !== 'level' && <span className={`small plot-price ${buy === 'gold' ? 'short' : ''}`}><PixelIcon name="coins" size={14} />{fmtShort(price.gold)}</span>}
                   </button>
@@ -263,7 +315,7 @@ export default function FarmScreen() {
                       <span className="small">{t(`farm.item.${p.crop}`)}</span>
                       {st.status === 'growing' ? (
                         <><div className="bar farm-bar"><div className="fill" style={{ width: `${st.progress * 100}%` }} /></div><span className="small muted">{fmtTime(st.left)}</span></>
-                      ) : <span className="small ready-tag">{t('farm.harvest')} +{farmDef(p.crop).yield}</span>}
+                      ) : <span className="small ready-tag">{t('farm.harvestN', { n: farmDef(p.crop).yield })}</span>}
                     </>
                   )}
                 </div>
@@ -273,7 +325,7 @@ export default function FarmScreen() {
           {/* under the plots, at the right: Auto replant */}
           <div className="farm-garden-foot">
             {/* auto replant unlocks with the base level: until then it shows what it needs */}
-            {autoReplantUnlocked(baseAbilityLevel(profile.bossWins)) ? (
+            {autoReplantUnlocked(bossLevel(profile.bossWins)) ? (
               <button
                 className={`btn small auto-replant stats-auto ${farm.autoReplant ? 'on' : ''}`}
                 aria-pressed={!!farm.autoReplant}
@@ -292,16 +344,17 @@ export default function FarmScreen() {
             <div className="crop-picker">
               <div className="farm-panel-head"><b>{t('farm.choose', { n: picking + 1 })}</b><button className="btn small" onClick={() => setPicking(null)}>✕</button></div>
               <div className="crop-grid">
-                {CROPS.map((c, ci) => (!isOwned(farm, 'crops', ci) ? (
+                {CROPS.map((c, ci) => { const seed = farmSeedCost(farm, c.id, { gold, baseLevel: base, slimeWins: slimes }); return (!isOwned(farm, 'crops', ci) ? (
                   <Locked key={c.id} kind="crops" index={ci} {...lockProps} className="crop-opt" name={t(`farm.item.${c.id}`)} />
                 ) : (
-                  <button key={c.id} className="crop-opt" onClick={() => { farmDo('plant', picking, c.id); setPicking(null); }}>
+                  <button key={c.id} className="crop-opt" disabled={gold < seed} title={!run ? t('farm.seedNoRun') : undefined} onClick={() => { farmDo('plant', picking, c.id); setPicking(null); }}>
                     {/* the ripe crop, as it will look when ready to harvest */}
                     <CropSprite crop={c.id} ready size={52} delay={-(ci * 0.41) % 3} />
                     <b>{t(`farm.item.${c.id}`)}</b>
-                    <span className="small muted">{fmtTime(c.time * cropMult)} · +{c.yield}</span>
+                    <span className="small muted">{fmtTime(c.time * cropMult)} · {t('farm.yields', { n: c.yield })}</span>
+                    <span className={`small plot-price ${gold < seed ? 'short' : ''}`}><PixelIcon name="coins" size={14} />{fmtShort(seed)}</span>
                   </button>
-                )))}
+                )); })}
               </div>
             </div>
           )}
@@ -311,6 +364,9 @@ export default function FarmScreen() {
       {tab === 'mine' && (() => {
         const rates = mineRates(farm.mine.level, mineSpeed(farm), ownedCount(farm, 'veins'));
         const cost = mineUpgradeCost(farm.mine.level);
+        const haul = mineCollectCost(farm, now); // gold of the run to haul what is stored
+        const anyStored = Object.values(stored).some((n) => n > 0);
+        const collect = (only) => { if (!run) toast(t('farm.haulNoRun'), 1600); else farmDo('collectMine', only); };
         return (
           <section className="panel farm-panel mine">
             <div className="farm-panel-head">
@@ -320,8 +376,9 @@ export default function FarmScreen() {
                 <span className="farm-subtitle muted small">{t('farm.level', { n: farm.mine.level, max: MINE_MAX_LEVEL })}</span>
               </div>
               {/* Collect on the title line, at the right, compact (like Harvest all in the garden) */}
-              <button className="btn primary small harvest-all" disabled={!Object.values(stored).some((n) => n > 0)} onClick={() => farmDo('collectMine')}>
+              <button className="btn primary small harvest-all" disabled={!anyStored || (run && gold < haul.total)} onClick={() => collect(null)} title={t('farm.haulHint')}>
                 <PixelIcon name="pickaxe" size={18} />{t('farm.collect')}
+                {anyStored && <span className={`plot-price ${gold < haul.total ? 'short' : ''}`}><PixelIcon name="coins" size={14} />{fmtShort(haul.total)}</span>}
               </button>
               <div className="row farm-actions">
                 <CreatureStack farm={farm} area="mine" now={now} t={t} />
@@ -351,6 +408,11 @@ export default function FarmScreen() {
                       <div className="bar farm-bar"><div className="fill" style={{ width: `${(stored[id] / r.cap) * 100}%` }} /></div>
                       <span className="small muted">{t('farm.stored', { n: stored[id], cap: r.cap })} · {t('farm.rate', { s: Math.round(r.seconds) })}</span>
                     </div>
+                    {stored[id] > 0 && (
+                      <button className="btn small unlock-buy" disabled={run && gold < haul[id]} onClick={() => collect(id)} title={t('farm.haulHint')} aria-label={`${t('farm.collect')} ${fmtShort(haul[id])}`}>
+                        <span className={`plot-price ${gold < haul[id] ? 'short' : ''}`}><PixelIcon name="coins" size={14} />{fmtShort(haul[id])}</span>
+                      </button>
+                    )}
                   </div>
                 );
               })}
@@ -366,18 +428,26 @@ export default function FarmScreen() {
               <h2>{t('farm.lab')}</h2>
               <CreatureStack farm={farm} area="lab" now={now} t={t} />
             </div>
-            {lab.status !== 'idle' && (
-              <div className={`lab-brewing ${lab.status}`}>
-                <FarmIcon id={farm.lab.elixir} size={40} />
-                <div className="recipe-body">
-                  <b>{t(`farm.item.${farm.lab.elixir}`)}</b>
-                  <div className="bar farm-bar"><div className="fill" style={{ width: `${lab.progress * 100}%` }} /></div>
-                  <span className="small muted">{lab.status === 'ready' ? t('farm.labReady') : fmtTime(lab.left)}</span>
-                </div>
-                <button className="btn primary small" disabled={lab.status !== 'ready'} onClick={() => farmDo('collectElixir')}>{t('farm.collect')}</button>
-              </div>
-            )}
-            {ELIXIRS.map((e, ei) => (!isOwned(farm, 'elixirs', ei) ? (
+            {/* alembics: the first is free, the others are bought like the stalls */}
+            <div className="lab-slots">
+              {labs.map((l, i) => {
+                if (i >= labSlots) return <Locked key={i} kind="labSlots" index={i - 1} {...lockProps} className="lab-brewing lab-locked" name={t('farm.labSlot', { n: i + 1 })} />;
+                if (!l) return <div key={i} className="lab-brewing idle"><span className="small muted">{t('farm.labSlot', { n: i + 1 })} · {t('farm.labIdle')}</span></div>;
+                const st = labState(l, now, labTimeMult(farm));
+                return (
+                  <div key={i} className={`lab-brewing ${st.status}`}>
+                    <FarmIcon id={l.elixir} size={40} />
+                    <div className="recipe-body">
+                      <b>{t(`farm.item.${l.elixir}`)}</b>
+                      <div className="bar farm-bar"><div className="fill" style={{ width: `${st.progress * 100}%` }} /></div>
+                      <span className="small muted">{st.status === 'ready' ? t('farm.labReady') : fmtTime(st.left)}</span>
+                    </div>
+                    <button className="btn primary small" disabled={st.status !== 'ready'} onClick={() => farmDo('collectElixir', i)}>{t('farm.collect')}</button>
+                  </div>
+                );
+              })}
+            </div>
+            {ELIXIRS.map((e, ei) => { const fee = farmBrewFee(farm, e.id, { gold, baseLevel: base, slimeWins: slimes }); return (!isOwned(farm, 'elixirs', ei) ? (
               <Locked key={e.id} kind="elixirs" index={ei} {...lockProps} icon={<FarmIcon id={e.id} size={36} />} name={t(`farm.item.${e.id}`)} />
             ) : (
               <div key={e.id} className="recipe">
@@ -387,28 +457,31 @@ export default function FarmScreen() {
                   <span className="small">{effectText(t, e)}</span>
                   <Cost cost={e.cost} farm={farm} t={t} />
                 </div>
-                <button className="btn small" disabled={!!farm.lab || !canAfford(farm, e.cost)} onClick={() => farmDo('startElixir', e.id)}>{t('farm.brew')}</button>
+                <button className="btn small lab-brew" disabled={!labFree || !canAfford(farm, e.cost) || gold < fee} title={!run ? t('farm.brewNoRun') : undefined} onClick={() => farmDo('startElixir', e.id)}>
+                  {t('farm.brew')} <span className={`plot-price ${gold < fee ? 'short' : ''}`}><PixelIcon name="coins" size={14} />{fmtShort(fee)}</span>
+                </button>
               </div>
-            )))}
+            )); })}
           </section>
           <section className="panel farm-panel cauldron">
             <div className="farm-panel-head">
               <h2>{t('farm.cauldron')}</h2>
               <CreatureStack farm={farm} area="cauldron" now={now} t={t} />
             </div>
-            {POTIONS.map((p, pi) => (!isOwned(farm, 'potions', pi) ? (
-              <Locked key={p.id} kind="potions" index={pi} {...lockProps} icon={<FarmIcon id={p.id} size={36} />} name={t(`farm.item.${p.id}`)} />
+            {/* the potions, then the threshold potions (bought on their own: farm.js CAULDRON) */}
+            {CAULDRON.map(({ def: p, kind, index: pi }) => { const wait = potionRechargeLeft(farm, p.id, now); return (!isOwned(farm, kind, pi) ? (
+              <Locked key={p.id} kind={kind} index={pi} {...lockProps} icon={<FarmIcon id={p.id} size={36} />} name={t(`farm.item.${p.id}`)} />
             ) : (
               <div key={p.id} className="recipe">
                 <FarmIcon id={p.id} size={36} />
                 <div className="recipe-body">
                   <b>{t(`farm.item.${p.id}`)} <span className="muted small">x{itemCount(farm, p.id)}</span></b>
-                  <span className="small">{effectText(t, p)}</span>
+                  <span className="small">{effectText(t, p)}{p.recharge ? ` · ${t('farm.recharge', { time: fmtTime(p.recharge) })}` : ''}</span>
                   <Cost cost={p.cost} farm={farm} t={t} />
                 </div>
-                <button className="btn small" disabled={!canAfford(farm, p.cost)} onClick={() => { farmDo('brewPotion', p.id); toast(t('farm.brewed', { name: t(`farm.item.${p.id}`) }), 1200); }}>{t('farm.brew')}</button>
+                <button className="btn small" disabled={!canAfford(farm, p.cost) || wait > 0} onClick={() => { farmDo('brewPotion', p.id); toast(t('farm.brewed', { name: t(`farm.item.${p.id}`) }), 1200); }}>{wait > 0 ? fmtTime(wait) : t('farm.brew')}</button>
               </div>
-            )))}
+            )); })}
           </section>
         </div>
       )}
@@ -424,7 +497,7 @@ export default function FarmScreen() {
               const c = farmDef(stall.creature);
               const next = creatureNextIn(stall, now);
               return (
-                <div key={i} className={`stall role-${c.role}`}>
+                <div key={i} className={`stall role-${c.role} ${onStrike(stall) ? 'striking' : ''}`}>
                   {releasing === i ? (
                     <button className="plot-remove confirm" onClick={() => { farmDo('release', i); setReleasing(null); }}>{t('farm.releaseConfirm')}</button>
                   ) : (
@@ -434,7 +507,10 @@ export default function FarmScreen() {
                   <div className="stall-body">
                     <b>{t(`farm.cr.${c.id}`)} <span className="tag role">{t(`farm.role.${c.role}`)}</span></b>
                     <span className="small">{creatureText(t, c)}</span>
-                    {next != null && <span className="small muted">{t('farm.nextAction', { time: fmtTime(next) })}</span>}
+                    {onStrike(stall)
+                      ? <span className="small plot-need">{t('farm.onStrike')}</span>
+                      : next != null && <span className="small muted">{t('farm.nextAction', { time: fmtTime(next) })}</span>}
+                    <Wage id={c.id} ctx={wageCtx} t={t} />
                   </div>
                 </div>
               );
@@ -443,17 +519,33 @@ export default function FarmScreen() {
           <h3 className="small muted stable-adopt-title">{t('farm.adopt')}</h3>
           <div className="adopt-grid">
           {CREATURES.map((c) => {
-            const st = adoptStatus(farm, c.id);
+            const st = adoptStatus(farm, c.id, base, slimes);
+            if (st === 'unknown') {
+              // not dropped yet: a shadow, like the bestiary; the boss is named once it was met
+              const boss = data.bossData.mapBosses[c.drop.boss];
+              const met = (profile.bestiary?.[`boss#${c.drop.boss}`]?.seen ?? 0) >= 1;
+              return (
+                <div key={c.id} className="recipe creature-unknown">
+                  <Creature sprite={`stable:${c.id}`} size={32} silhouette />
+                  <div className="recipe-body">
+                    <b>????</b>
+                    <span className="small muted">{t('farm.crDrop', { boss: met ? boss.name : '????' })}</span>
+                  </div>
+                </div>
+              );
+            }
             return (
               <div key={c.id} className="recipe">
                 <Creature sprite={`stable:${c.id}`} size={32} />
                 <div className="recipe-body">
                   <b>{t(`farm.cr.${c.id}`)} <span className="tag role">{t(`farm.role.${c.role}`)}</span></b>
                   <span className="small">{creatureText(t, c)}</span>
+                  <Wage id={c.id} ctx={wageCtx} t={t} />
+                  {st === 'level' && <PlotNeed price={c.need} base={base} slimes={slimes} t={t} />}
                   <Cost cost={c.cost} farm={farm} t={t} />
                 </div>
                 <button className="btn small" disabled={st !== 'ok'} onClick={() => { farmDo('adopt', c.id); toast(t('farm.adopted', { name: t(`farm.cr.${c.id}`) }), 1400); }}>
-                  {st === 'owned' ? t('farm.inStable') : st === 'full' ? t('farm.stableFull') : t('farm.adoptBtn')}
+                  {st === 'owned' ? t('farm.inStable') : st === 'full' ? t('farm.stableFull') : st === 'level' ? `🔒 ${t('farm.adoptBtn')}` : t('farm.adoptBtn')}
                 </button>
               </div>
             );
@@ -471,7 +563,7 @@ export default function FarmScreen() {
               <div className="store-grid">
                 {list.map((d) => {
                   const n = itemCount(farm, d.id);
-                  const usable = n > 0 && run && (d.effect?.kind === 'bp' || d.buff);
+                  const usable = n > 0 && run && usableOnMap(d);
                   return (
                     <div key={d.id} className={`store-item ${n ? '' : 'empty'}`}>
                       <FarmIcon id={d.id} size={22} />

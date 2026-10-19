@@ -19,11 +19,24 @@
     "build:sandbox": "vite build --mode sandbox",
     "preview": "vite preview",
     "dist:win": "npm run build && electron-builder --win --x64",
+    "android:sync": "npm run build && cap sync android",
+    "android:open": "cap open android",
+    "android:run": "npm run build && cap run android",
+    "dist:android:apk": "npm run android:sync && cd android && gradlew.bat assembleDebug",
+    "dist:android:aab": "npm run android:sync && cd android && gradlew.bat bundleRelease",
     "smoke": "cross-env VITE_DEV_SERVER_URL=http://localhost:8000 electron scripts/smoke.cjs",
     "build:data": "node scripts/build-data.mjs",
-    "build:armor-icons": "node scripts/build-armor-icons.mjs"
+    "build:armor-icons": "node scripts/build-armor-icons.mjs",
+    "build:android-icons": "electron scripts/build-android-icons.cjs",
+    "build:boss-doc": "node scripts/build-boss-doc.mjs",
+    "simulate": "node scripts/simulate.mjs"
   },
   "dependencies": {
+    "@capacitor/android": "^8.5.3",
+    "@capacitor/app": "^8.1.2",
+    "@capacitor/core": "^8.5.3",
+    "@capacitor/preferences": "^8.0.1",
+    "@capacitor/splash-screen": "^8.0.2",
     "@fontsource/pixelify-sans": "^5.3.0",
     "phaser": "^3.90.0",
     "react": "^18.3.1",
@@ -31,6 +44,7 @@
     "zustand": "^5.0.3"
   },
   "devDependencies": {
+    "@capacitor/cli": "^8.5.3",
     "@vitejs/plugin-react": "^4.3.4",
     "concurrently": "^9.1.2",
     "cross-env": "^7.0.3",

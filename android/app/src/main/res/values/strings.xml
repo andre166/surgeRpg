@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Surge RPG</string>
+    <string name="title_activity_main">Surge RPG</string>
+    <string name="package_name">com.surgerpg.game</string>
+    <string name="custom_url_scheme">com.surgerpg.game</string>
+</resources>

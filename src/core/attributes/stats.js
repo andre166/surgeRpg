@@ -10,15 +10,16 @@
  *   character: { index, abilityLevel, currentAbilityLevel }
  *   hardMode:  boolean
  *   playGem:   optional { gameOverCount:number, nullified:boolean } context of the gamble gem
+ *   account:   optional progress counters for class stat growth (progression/classes.js accountProgress)
  *              (GData_PlayHouseki.as: value 1/2/3 -> ATK&DEF += runs*3/17/40, AGI += runs*3/12/30;
  *               at battle start a 40% roll nullifies every play gem for that battle)
  *
  * Output: { total, bonus, bonusFlat, bonusPercent, modifiers, speedShare, luckShare }
  */
-import { classTierDef } from '../progression/classes.js';
+import { classTierDef, classGrowth } from '../progression/classes.js';
 import { echoDef, applyEchoPassive } from '../echoes.js';
 import { EFFECT } from './effects.js';
-import { characterPowerWeights, characterPowerFactor } from './characterPower.js';
+import { characterPowerBonus } from './characterPower.js';
 import { asInt } from '../util/num.js';
 
 export const STAT_KEYS = ['hp', 'atk', 'def', 'speed', 'luck'];
@@ -26,16 +27,19 @@ export const STAT_KEYS = ['hp', 'atk', 'def', 'speed', 'luck'];
 export function defaultModifiers(hardMode) {
   return {
     expMultiplier: 1,
+    goldBonus: 0, // extra battle gold (Duende Ganancioso echo; not in the original)
     extraStatPoints: 0, // 0,1,2 extra stat points per level
     critRatePlus: 0,
     critDamageMultiplier: 1,
     moveSpeed: 10,
     maxBattlePoints: hardMode ? 10 : 30,
     forcedCritHits: 0, // first N player hits are critical
-    comboRatePlus: 0,
+    comboRingPlus: 0, // Combo Rate Ring (the original's renzokuPlusKakuritu)
+    comboRatePlus: 0, // combo from classes / echoes (not in the original; diminishing, battle/combo.js)
     drainSmall: false,
     drain: false,
     deathGuard: 0, // encoded as ones + tens*10, see battle/damage.js
+    classGuard: 0, // class passive: chance to survive a lethal hit, once per battle (classes.js CLASS_GUARD_CHANCE)
     encounterMultiplier: 1,
     instantEncounter: false,
     abilityUpPercent: 0,
@@ -52,7 +56,7 @@ export function playGemBonus(v, playGem) {
   return { atkDef: runs * k1, speed: runs * k2 };
 }
 
-export function computeStats({ base, equipment, character, hardMode = false, playGem = null, talentPct = null, classId = null, classTier = 0, classPath = null, craftPct = null, echoId = null, echo = null, buff = null }) {
+export function computeStats({ base, equipment, character, hardMode = false, playGem = null, talent = null, classId = null, classTier = 0, classPath = null, craftPct = null, heroPct = null, echoId = null, echo = null, buff = null, account = null }) {
   const flat = { hp: 0, atk: 0, def: 0, speed: 0, luck: 0 };
   const pct = { hp: 0, atk: 0, def: 0, speed: 0, luck: 0 };
   const mods = defaultModifiers(hardMode);
@@ -98,7 +102,7 @@ export function computeStats({ base, equipment, character, hardMode = false, pla
       case EFFECT.FIRST_HITS_CRIT_3: mods.forcedCritHits = 3; break;
       case EFFECT.FIRST_HITS_CRIT_2: if (mods.forcedCritHits <= 1) mods.forcedCritHits = 2; break;
       case EFFECT.FIRST_HITS_CRIT_1: if (mods.forcedCritHits === 0) mods.forcedCritHits = 1; break;
-      case EFFECT.COMBO_RATE_PLUS: mods.comboRatePlus = 0.09; break;
+      case EFFECT.COMBO_RATE_PLUS: mods.comboRingPlus = 0.09; break;
       case EFFECT.DRAIN_SMALL: mods.drainSmall = true; break;
       case EFFECT.DRAIN: mods.drain = true; break;
       case EFFECT.DEATH_GUARD_1: mods.deathGuard += 1; break;
@@ -114,24 +118,29 @@ export function computeStats({ base, equipment, character, hardMode = false, pla
   }
 
   // Character ability bonus (percent of base+flat).
-  const w = characterPowerWeights(character?.index ?? 0);
-  const f = characterPowerFactor(
+  const power = characterPowerBonus(
+    character?.index ?? 0,
     character?.abilityLevel ?? 0,
     character?.currentAbilityLevel ?? 0,
     mods.abilityUpPercent,
+    character?.extra,
   );
-  pct.hp += w.hp * f * 0.06;
-  pct.atk += w.atk * f * 0.07;
-  pct.def += w.def * f * 0.07;
-  pct.speed += w.speed * f * 0.075;
-  pct.luck += w.luck * f * 0.08;
+  for (const k of Object.keys(power)) pct[k] += power[k];
+  // Hero passive (characterPower.js heroPassivePct; not in the original).
+  if (heroPct) for (const k of STAT_KEYS) pct[k] += heroPct[k] ?? 0;
 
-  // Talent tree percents (src/core/progression/talents.js; not in the original).
-  if (talentPct) for (const k of STAT_KEYS) pct[k] += talentPct[k] ?? 0;
+  // Talent tree passive: stat percents and modifiers (src/core/progression/talents.js; not in the original).
+  if (talent) applyEchoPassive({ passive: talent }, pct, mods);
   // Crafted relic bound to the hero (src/core/crafting.js; not in the original).
   if (craftPct) for (const k of STAT_KEYS) pct[k] += craftPct[k] ?? 0;
   // Ancestral Echo passive (src/core/echoes.js; not in the original).
-  applyEchoPassive(echo ?? echoDef(echoId), pct, mods);
+  const echoNow = echo ?? echoDef(echoId);
+  applyEchoPassive(echoNow, pct, mods);
+  // Rei Tentacular: a stat growing with the account, the same growth as the classes (classes.js classGrowth)
+  if (echoNow?.growth) {
+    const grow = classGrowth({ mods: { growth: echoNow.growth } }, account);
+    if (grow.stat) pct[grow.stat] += grow.pct;
+  }
   // Farm elixir buffs on the run (src/core/farm.js; not in the original).
   if (buff) applyEchoPassive({ passive: buff }, pct, mods);
 
@@ -139,6 +148,9 @@ export function computeStats({ base, equipment, character, hardMode = false, pla
   const cls = classTierDef(classId, classPath ? classPath.length : classTier, classPath);
   if (cls) {
     for (const k of STAT_KEYS) pct[k] += cls.pct[k] ?? 0;
+    // fighter / adventurer lines: a stat growing with the player's progress (`account`: classes.js accountProgress)
+    const grow = classGrowth(cls, account);
+    if (grow.stat) pct[grow.stat] += grow.pct;
     cls.applyModifiers(mods);
   }
 

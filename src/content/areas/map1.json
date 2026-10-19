@@ -1,0 +1,139 @@
+{
+  "map": 1,
+  "areas": [
+    {
+      "id": 0,
+      "monsters": [
+        {
+          "sprite": "ene1_0a",
+          "weight": 10
+        },
+        {
+          "sprite": "ene1_0e",
+          "weight": 10
+        },
+        {
+          "sprite": "ene1_0b",
+          "weight": 10
+        },
+        {
+          "sprite": "ene1_0c",
+          "weight": 10
+        },
+        {
+          "sprite": "ene1_0d",
+          "weight": 10
+        }
+      ]
+    },
+    {
+      "id": 1,
+      "monsters": [
+        {
+          "sprite": "ene1_2b",
+          "weight": 10
+        },
+        {
+          "sprite": "ene1_2d",
+          "weight": 10
+        },
+        {
+          "sprite": "ene1_2c",
+          "weight": 10
+        },
+        {
+          "sprite": "ene1_2a",
+          "weight": 10
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "monsters": [
+        {
+          "sprite": "ene1_1a",
+          "weight": 10
+        },
+        {
+          "sprite": "ene1_1b",
+          "weight": 10
+        },
+        {
+          "sprite": "ene1_1d",
+          "weight": 10
+        },
+        {
+          "sprite": "ene1_1c",
+          "weight": 10
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "monsters": [
+        {
+          "sprite": "ene1_3a",
+          "weight": 10
+        },
+        {
+          "sprite": "ene2_1a",
+          "weight": 10
+        },
+        {
+          "sprite": "ene1_3c",
+          "weight": 10
+        },
+        {
+          "sprite": "ene1_3d",
+          "weight": 10
+        },
+        {
+          "sprite": "ene1_3e",
+          "weight": 10
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "monsters": [
+        {
+          "sprite": "ene1_4a",
+          "weight": 10
+        },
+        {
+          "sprite": "ene1_4b",
+          "weight": 10
+        },
+        {
+          "sprite": "ene1_4c",
+          "weight": 10
+        },
+        {
+          "sprite": "ene1_4d",
+          "weight": 10
+        },
+        {
+          "sprite": "ene1_4e",
+          "weight": 10
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "monsters": [
+        {
+          "sprite": "ene5_2a",
+          "weight": 10
+        },
+        {
+          "sprite": "ene5_2b",
+          "weight": 10
+        },
+        {
+          "sprite": "ene5_2c",
+          "weight": 10
+        }
+      ]
+    }
+  ]
+}

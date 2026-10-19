@@ -8,14 +8,14 @@ import OreSprite, { hasOreSprite } from './OreSprite.jsx';
 const COLORS = {
   shade_herb: '#6fbf73', pale_mushroom: '#d9d2c3', bloodroot: '#c0392b', moon_cap: '#8fa8ff',
   ruin_bloom: '#b07cff', abyss_truffle: '#4a3b5c',
-  healing_potion: '#ff5c7a', vigor_tonic: '#58d68d', ruin_draught: '#b07cff',
-  fury_elixir: '#ff7a3d', stoneskin_elixir: '#9aa3b2', insight_elixir: '#5aa9ff',
+  healing_potion: '#ff5c7a', vigor_tonic: '#58d68d', ruin_draught: '#b07cff', blood_tonic: '#d63a2e',
+  fury_elixir: '#ff7a3d', stoneskin_elixir: '#9aa3b2', insight_elixir: '#5aa9ff', swift_elixir: '#4fe0b8', titan_elixir: '#d02a4a',
 };
 const KIND = {
   shade_herb: 'herb', bloodroot: 'herb', ruin_bloom: 'herb',
   pale_mushroom: 'mushroom', moon_cap: 'mushroom', abyss_truffle: 'mushroom',
-  healing_potion: 'potion', vigor_tonic: 'potion', ruin_draught: 'potion',
-  fury_elixir: 'elixir', stoneskin_elixir: 'elixir', insight_elixir: 'elixir',
+  healing_potion: 'potion', vigor_tonic: 'potion', ruin_draught: 'potion', blood_tonic: 'potion',
+  fury_elixir: 'elixir', stoneskin_elixir: 'elixir', insight_elixir: 'elixir', swift_elixir: 'elixir', titan_elixir: 'elixir',
 };
 
 function shape(kind, c) {

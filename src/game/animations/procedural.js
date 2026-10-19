@@ -2,6 +2,8 @@
  * Procedural art: deterministic SVG creatures and heroes from a string seed.
  * Keeps the visual identity our own while giving every enemy a stable look.
  */
+import { ECHO_ART, ECHO_ART_GLOW } from './echoArt.js';
+
 function hash(s) {
   let h = 2166136261;
   for (let i = 0; i < s.length; i += 1) {
@@ -91,6 +93,7 @@ const AFFINITY_HUES = {
 };
 /** Glow colour of an echo as [hue 0..360, saturation 0..1, lightness 0..1] (map sparkles). */
 export function echoGlowHsl(echo) {
+  if (ECHO_ART_GLOW[echo?.id]) return ECHO_ART_GLOW[echo.id];
   const c = AFFINITY_HUES[echo?.affinity] ?? AFFINITY_HUES.fire;
   const [h, sat, l] = c.glow.match(/[\d.]+/g).map(Number);
   return [h, sat / 100, l / 100];
@@ -106,6 +109,8 @@ const RARITY_AURA = { common: 0.15, rare: 0.3, epic: 0.45, legendary: 0.65 };
  * Without a pose the drawing is the still portrait.
  */
 export function echoSvg(echo, pose = null) {
+  // the rare echoes are hand-drawn (echoArt.js); the commons are these procedural ghosts
+  if (ECHO_ART[echo?.id]) return ECHO_ART[echo.id](pose);
   const r = rnd(hash(`echo:${echo?.id ?? 'x'}`));
   const c = AFFINITY_HUES[echo?.affinity] ?? AFFINITY_HUES.fire;
   const aura = RARITY_AURA[echo?.rarity] ?? 0.2;

@@ -8,19 +8,24 @@
  *   0 weapon, 1 armor, 2..7 accessory, 8..9 mini (rank <= 1), 10..11 mini (rank 0), 12..15 unused.
  */
 import { ITEM_TYPE } from './items.js';
+import { plotNeedMet } from '../farm.js';
 
 export const SLOT = Object.freeze({ LOCKED: -2, EMPTY: -1 });
 export const SLOT_COUNT = 16;
 export const ACCESSORY_SLOTS = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
 export const ACCESSORY_UNLOCK_COST = [0, 5000, 30000, 250000, 500000, 750000, 5000000, 5000000, 3500000, 3500000]; // index = slot - 2
 export const EQUIPMENT_SET_COUNT = 5;
-export const EQUIPMENT_SET_UNLOCK_COST = [300000, 1500000, 2100000, 4000000]; // sets 2..5
+export const EQUIPMENT_SET_UNLOCK_COST = [130000, 1000000, 1460000, 2200000]; // sets 2..5 (original: 110k, 1.38M, 1.98M, 3.88M)
 /**
  * Addition (not in the original): like the farm plots, slots and sets also need the shared base
- * level (progression/characters.js) to be bought. Index = slot - 2 (slot 2 starts open) / set - 2.
+ * level (progression/characters.js) to be bought; the last slots also need SK (different Slime Kings beaten,
+ * bestiary.js slimeKingWins) and the boss set SK instead. Index = slot - 2 (slot 2 starts open) / set - 2.
  */
-export const ACCESSORY_UNLOCK_BASE = [0, 1, 2, 3, 4, 5, 7, 8, 6, 6];
-export const EQUIPMENT_SET_UNLOCK_BASE = [2, 4, 6, 9];
+export const ACCESSORY_UNLOCK_NEED = [
+  { baseLevel: 0 }, { baseLevel: 3 }, { baseLevel: 4 }, { baseLevel: 5 }, { baseLevel: 6 }, { baseLevel: 7 },
+  { baseLevel: 7 }, { baseLevel: 7 }, { baseLevel: 6, slimeKings: 3 }, { baseLevel: 6, slimeKings: 3 },
+];
+export const EQUIPMENT_SET_UNLOCK_NEED = [{ baseLevel: 2 }, { baseLevel: 10 }, { baseLevel: 16 }, { slimeKings: 2 }];
 
 export function initialSlots() {
   const s = new Array(SLOT_COUNT).fill(SLOT.LOCKED);
@@ -42,22 +47,22 @@ export function slotUnlockCost(slot) {
   return ACCESSORY_UNLOCK_COST[slot - 2];
 }
 
-/** Base level a slot needs to be bought (0 for slots that need none). */
-export function slotUnlockBase(slot) {
-  if (slot < 2 || slot > 11) return 0;
-  return ACCESSORY_UNLOCK_BASE[slot - 2];
+/** What a slot needs to be bought ({ baseLevel } or { slimeKings }; base level 0 for slots that need none). */
+export function slotUnlockNeed(slot) {
+  if (slot < 2 || slot > 11) return { baseLevel: 0 };
+  return ACCESSORY_UNLOCK_NEED[slot - 2];
 }
 
-/** Can a slot be bought? 'ok' | 'open' (not locked) | 'level' (base level too low) | 'gold'. */
-export function slotUnlockStatus(slots, slot, gold, baseLevel = Infinity) {
+/** Can a slot be bought? 'ok' | 'open' (not locked) | 'level' (base level or Slime Kings too low) | 'gold'. */
+export function slotUnlockStatus(slots, slot, gold, baseLevel = Infinity, slimeWins = Infinity) {
   if (slots[slot] !== SLOT.LOCKED) return 'open';
-  if (baseLevel < slotUnlockBase(slot)) return 'level';
+  if (!plotNeedMet(slotUnlockNeed(slot), baseLevel, slimeWins)) return 'level';
   if (gold < slotUnlockCost(slot)) return 'gold';
   return 'ok';
 }
 
-export function canUnlockSlot(slots, slot, gold, baseLevel = Infinity) {
-  return slotUnlockStatus(slots, slot, gold, baseLevel) === 'ok';
+export function canUnlockSlot(slots, slot, gold, baseLevel = Infinity, slimeWins = Infinity) {
+  return slotUnlockStatus(slots, slot, gold, baseLevel, slimeWins) === 'ok';
 }
 
 export function unlockSlot(slots, slot) {
@@ -120,9 +125,15 @@ export function equipItem(slots, slot, itemId) {
   return next;
 }
 
-/** Removes an accessory from a slot (quality-of-life addition; the original had no explicit unequip). */
+/** Starting weapon / armor (always owned): what slots 0 and 1 fall back to when their item is lost. */
+export const STARTING_ITEM_ID = 0;
+
+/**
+ * Unequips a slot (quality-of-life addition; the original had no explicit unequip): the slot
+ * becomes empty, the weapon and armor slots too (the hero then fights without one).
+ */
 export function unequipSlot(slots, slot) {
-  if (slot < 2) return slots;
+  if (slot < 0 || slot >= SLOT_COUNT) return slots;
   const next = slots.slice();
   if (next[slot] >= 0) next[slot] = SLOT.EMPTY;
   return next;

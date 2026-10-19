@@ -3,6 +3,7 @@
  * and eneGetDameSkNumFunc (enemy). `rng.next()` returns [0,1).
  */
 import { asInt } from '../util/num.js';
+import { COMBO_LOW_HP_CAP } from './combo.js';
 
 /**
  * Player attack roll.
@@ -100,13 +101,13 @@ export function drainAmount(damage, mods) {
   return 0;
 }
 
-/** Combo chance for the next player action, with the low-HP bonus. */
+/** Combo chance for the next player action, with the low-HP bonus (the same for every combo of the turn). */
 export function comboChance(comboRate, hpRatio) {
   let c = comboRate;
   if (hpRatio <= 0.25) {
-    // Original chain tests <=0.5 first (always true here): +0.13.
+    // Original chain tests <=0.5 first (always true here): +0.13 (cap 0.8 in the original).
     c += 0.13;
-    if (c >= 0.8) c = 0.8;
+    if (c >= COMBO_LOW_HP_CAP) c = COMBO_LOW_HP_CAP;
   }
   return c;
 }

@@ -6,26 +6,69 @@
  */
 import { asInt, clamp } from '../util/num.js';
 
+/**
+ * `worldData`: world.json, optionally with `namedMaps` (src/data/namedMaps.json: maps made in the
+ * map editor with no original counterpart, e.g. the castle). Those carry `art`, the editor file
+ * name, which teleport triggers may use as their destination (mapIdByName).
+ */
 export function createWorld(worldData) {
+  const maps = [...worldData.maps, ...(worldData.namedMaps ?? [])];
   const byId = new Map();
-  for (const m of worldData.maps) byId.set(m.id, m);
-  // maps whose bosses come from the map editor (boss triggers): a copy with `bosses` replaced
+  const byName = new Map();
+  for (const m of maps) {
+    byId.set(m.id, m);
+    if (m.art) byName.set(m.art.toLowerCase(), m.id);
+  }
+  // maps edited in the map editor: bosses from boss triggers, grid + areas from the area layer.
+  // world.map(id) returns a copy of the world.json map with those fields replaced.
+  const bossOverrides = new Map();
+  const slimeOverrides = new Map();
+  const areaOverrides = new Map();
   const overrides = new Map();
+  const rebuild = (id) => {
+    const bosses = bossOverrides.get(id);
+    const areas = areaOverrides.get(id);
+    const slimes = slimeOverrides.get(id);
+    if (!bosses && !areas && !slimes) overrides.delete(id);
+    else overrides.set(id, { ...byId.get(id), ...areas, ...(bosses && { bosses }), ...(slimes && { slimes }) });
+  };
   return {
     start: worldData.start,
-    maps: worldData.maps,
+    maps,
     map(id) {
       return overrides.get(id) ?? byId.get(id) ?? null;
     },
+    /** Id of the named map whose editor file is `name` ("entrada_castelo"), or null. */
+    mapIdByName(name) {
+      return byName.get(String(name ?? '').trim().toLowerCase()) ?? null;
+    },
     /**
-     * Bosses of a map placed by boss triggers (triggers.js parseBossTriggers). One or more
-     * replace the world.json bosses of that map; an empty list restores them.
+     * Bosses of a map placed by boss triggers (triggers.js parseBossTriggers). A list (even an
+     * empty one: a map edited in the editor has only the bosses its triggers place) replaces the
+     * world.json bosses of that map; null restores them.
      */
     setMapBosses(id, bosses) {
-      const m = byId.get(id);
-      if (!m) return;
-      if (bosses?.length) overrides.set(id, { ...m, bosses: bosses.map((b) => ({ ...b })) });
-      else overrides.delete(id);
+      if (!byId.has(id)) return;
+      if (Array.isArray(bosses)) bossOverrides.set(id, bosses.map((b) => ({ ...b })));
+      else bossOverrides.delete(id);
+      rebuild(id);
+    },
+    /** Standalone slimes of a map placed by boss triggers (triggers.js parseSlimeTriggers); an empty list removes them. */
+    setMapSlimes(id, slimes) {
+      if (!byId.has(id)) return;
+      if (slimes?.length) slimeOverrides.set(id, slimes.map((s) => ({ ...s })));
+      else slimeOverrides.delete(id);
+      rebuild(id);
+    },
+    /**
+     * Area grid and areas of a map painted in the editor's area layer (areaLayer.js
+     * parseAreaLayer). They replace the world.json grid and areas of that map; null restores them.
+     */
+    setMapAreas(id, override) {
+      if (!byId.has(id)) return;
+      if (override?.grid && override?.areas) areaOverrides.set(id, { grid: override.grid, areas: override.areas });
+      else areaOverrides.delete(id);
+      rebuild(id);
     },
   };
 }

@@ -12,13 +12,30 @@ import { isCompact } from './responsive.js';
 let game = null;
 let holder = null;
 let compactMode = null;
+// true from the game's creation (or a scene load with files to fetch) until the map's first frame
+let loading = false;
+const loadingListeners = new Set();
+
+function setLoading(v) {
+  if (loading === v) return;
+  loading = v;
+  for (const cb of loadingListeners) cb(v);
+}
+
+/** Calls `cb(loading)` now and on every change; returns the unsubscribe. */
+export function subscribeMapLoading(cb) {
+  loadingListeners.add(cb);
+  cb(loading);
+  return () => loadingListeners.delete(cb);
+}
 
 /** Creates the game inside `host`: the holder must be in the page first, or the FIT scale mode measures a 0x0 parent and the canvas stays 0x0 (invisible, never clicked). */
 function create(compact, host) {
   holder = document.createElement('div');
   holder.className = 'phaser-holder';
   host.appendChild(holder);
-  return new Phaser.Game({
+  setLoading(true);
+  const g = new Phaser.Game({
     type: Phaser.AUTO,
     parent: holder,
     width: 1280,
@@ -32,6 +49,9 @@ function create(compact, host) {
     render: { antialias: true },
     audio: { noAudio: true },
   });
+  g.events.on('map-loading', () => setLoading(true));
+  g.events.on('map-ready', () => setLoading(false));
+  return g;
 }
 
 /**
@@ -59,6 +79,7 @@ export function attachMapGame(host) {
     game.loop.wake(); // a sleeping loop would never run the pending destroy
     game.destroy(true);
     game = null;
+    setLoading(false);
   }
   if (!game) {
     game = create(compact, host);

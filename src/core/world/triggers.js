@@ -12,6 +12,10 @@
  * Boss triggers (name "boss", data '{"boss":0}', optional "w"/"h" in map pixels) place a map
  * boss on their cell instead of the position in world.json; see parseBossTriggers. They are
  * not "enter the cell" triggers: the fight starts by touching the boss rectangle (bossTouch).
+ * An optional "teleport" ('{"boss":"boss#2","teleport":"caverna_cristal"}') names the map the
+ * hero is sent to after beating it, on that map's spawn point (session.js finishBattle).
+ * The same trigger with a slime id ('{"boss":"slime#30"}') places a slime king (slimeBosses.js
+ * SLIME_IDS); see parseSlimeTriggers.
  */
 
 const DIRS = ['up', 'down', 'left', 'right'];
@@ -26,8 +30,15 @@ function parseData(data) {
   }
 }
 
-/** Boss rectangle when neither the trigger nor world.json gives one (map 1's first boss). */
-export const DEFAULT_BOSS_SIZE = Object.freeze({ w: 188, h: 112 });
+/**
+ * Size of the bosses placed by triggers against their original rectangle (world.json): half,
+ * so they take less room on the hand-made maps. The boss art and circle follow the rectangle.
+ * A trigger's own w/h is used as given.
+ */
+export const BOSS_MAP_SCALE = 0.5;
+
+/** Boss rectangle when neither the trigger nor world.json gives one (map 1's first boss, scaled). */
+export const DEFAULT_BOSS_SIZE = Object.freeze({ w: 188 * BOSS_MAP_SCALE, h: 112 * BOSS_MAP_SCALE });
 
 /** Trigger that places a map boss: named "boss" or with a "boss" key in its data JSON. */
 export function isBossTrigger(p) {
@@ -69,9 +80,14 @@ export function spawnCell(art) {
   return p && width ? { col: p.index % width, row: Math.floor(p.index / width) } : null;
 }
 
-/** Map id a trigger points to: its trailing number, or the current map when empty. */
-export function triggerMapId(trigger, currentMapId) {
+/**
+ * Map id a trigger points to: a named map's editor file ("entrada_castelo", resolved by
+ * `world.mapIdByName`), else its trailing number; the current map when empty.
+ */
+export function triggerMapId(trigger, currentMapId, world = null) {
   if (!trigger.map) return currentMapId;
+  const named = world?.mapIdByName?.(trigger.map);
+  if (named != null) return named;
   const m = /(\d+)\s*$/.exec(trigger.map);
   return m ? Number(m[1]) : null;
 }
@@ -94,8 +110,8 @@ const positive = (v) => (Number.isFinite(Number(v)) && Number(v) > 0 ? Number(v)
 /**
  * Map bosses placed by boss triggers, in the shape of world.json's map.bosses:
  * [{ id, x, y, w, h, scale }] with x/y the centre of the trigger cell in map pixels.
- * Size: the trigger's w/h, else that boss's rectangle in world.json (defaultBosses), else
- * DEFAULT_BOSS_SIZE. Invalid ids (not a whole number >= 0, or not in opts.validIds) and
+ * Size: the trigger's w/h, else that boss's rectangle in world.json (defaultBosses) times
+ * BOSS_MAP_SCALE, else DEFAULT_BOSS_SIZE. Invalid ids (not a whole number >= 0, or not in opts.validIds) and
  * repeated ids (the first one stays) are skipped.
  */
 /**
@@ -106,6 +122,33 @@ export function bossIdOf(raw) {
   if (typeof raw !== 'string') return NaN;
   const m = /^\s*(?:boss\s*#\s*)?(\d+)\s*$/i.exec(raw);
   return m ? Number(m[1]) : NaN;
+}
+
+/** Slime id of a trigger's data ("slime#30"); NaN when it is not one. */
+export function slimeIdOf(raw) {
+  const m = typeof raw === 'string' ? /^\s*slime\s*#\s*(\d+)\s*$/i.exec(raw) : null;
+  return m ? Number(m[1]) : NaN;
+}
+
+/**
+ * Slime kings placed by boss triggers with a slime id: [{ id, x, y, w, h }] with x/y the
+ * centre of the trigger cell in map pixels. Size: the trigger's w/h, else `defaultSize`. Ids
+ * not in opts.validIds and repeated ids (the first one stays) are skipped.
+ */
+export function parseSlimeTriggers(art, map, defaultSize, { validIds = null } = {}) {
+  const cols = art?.width ?? 0;
+  const rows = art?.height ?? 0;
+  if (!cols || !rows || !map) return [];
+  const out = [];
+  for (const p of art?.objectProps ?? []) {
+    if (!Number.isInteger(p?.index) || !isBossTrigger(p)) continue;
+    const data = parseData(p.data);
+    const id = slimeIdOf(data.boss);
+    if (!Number.isInteger(id) || (validIds && !validIds.has(id)) || out.some((s) => s.id === id)) continue;
+    const { x, y } = cellCentre(p.index % cols, Math.floor(p.index / cols), cols, rows, map.w, map.h);
+    out.push({ id, x, y, w: positive(data.w) ?? defaultSize.w, h: positive(data.h) ?? defaultSize.h });
+  }
+  return out;
 }
 
 export function parseBossTriggers(art, map, defaultBosses = [], { validIds = null } = {}) {
@@ -126,9 +169,11 @@ export function parseBossTriggers(art, map, defaultBosses = [], { validIds = nul
       id,
       x,
       y,
-      w: positive(data.w) ?? def?.w ?? DEFAULT_BOSS_SIZE.w,
-      h: positive(data.h) ?? def?.h ?? DEFAULT_BOSS_SIZE.h,
+      w: positive(data.w) ?? (def ? def.w * BOSS_MAP_SCALE : DEFAULT_BOSS_SIZE.w),
+      h: positive(data.h) ?? (def ? def.h * BOSS_MAP_SCALE : DEFAULT_BOSS_SIZE.h),
       scale: def?.scale ?? 1,
+      // '{"boss":"boss#2","teleport":"caverna_cristal"}': beating it sends the hero to that map's spawn
+      ...(typeof data.teleport === 'string' && data.teleport.trim() && { teleport: data.teleport.trim() }),
     });
   }
   return out;

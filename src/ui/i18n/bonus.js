@@ -9,6 +9,7 @@ export function bonusName(t, value) {
   return BONUS_SYMBOL[type] ?? t(`bonus.${type}`);
 }
 
-export function bonusText(t, value) {
-  return `${bonusName(t, value)} (${bonusCharges(value)})`;
+/** `extra`: battles added on top (threshold potions in a secret room). */
+export function bonusText(t, value, extra = 0) {
+  return `${bonusName(t, value)} (${bonusCharges(value) + extra})`;
 }

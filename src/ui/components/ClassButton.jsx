@@ -2,9 +2,10 @@ import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useGame } from '../stores/gameStore.js';
 import { fmtFull, fmtShort } from '../components/format.js';
-import { heroClass, classChildren, classLine, classAncestor, classPathOf, runClassNode, canPromoteClass, nextClassOptions, autoClassBranch, AUTO_CLASS_MIN_BASE, classResetCost, classResetStatus } from '../../core/progression/classes.js';
-import { baseAbilityLevel } from '../../core/progression/characters.js';
-import { deathGuardChance } from '../../core/battle/damage.js';
+import { heroClass, classChildren, classLine, classAncestor, classPathOf, runClassNode, canPromoteClass, nextClassOptions, autoClassBranch, AUTO_CLASS_MIN_BASE, classResetCost, classResetStatus, subclassOwned, subclassIndex, STAT_GROWTH, classGrowth, accountProgress } from '../../core/progression/classes.js';
+import { subclassKind } from '../../core/progression/unlocks.js';
+import AccountUnlock from './AccountUnlock.jsx';
+import { bossLevel } from '../../core/progression/characters.js';
 import { useT } from '../i18n/index.js';
 import PixelIcon from './PixelIcon.jsx';
 
@@ -13,9 +14,17 @@ const CLASS_ICONS = { warrior: 'warrior', mage: 'mage', thief: 'thief' };
 const pctLabel = (x) => `${x > 0 ? '+' : ''}${Math.round(x * 100)}%`;
 
 /** Passive of a class node, written from its modifiers (so the text always matches the effect). */
-export function classPassiveText(t, node) {
+export function classPassiveText(t, node, account = null) {
   const m = node?.mods ?? {};
   const parts = [];
+  // a stat growing with the player's progress (fighter / adventurer lines): each source, then what it gives now
+  const stat = m.growth ? t(`stat.${m.growth.stat}`) : '';
+  for (const src of m.growth?.sources ?? []) {
+    const g = STAT_GROWTH[src];
+    parts.push(t(`class.mod.grow.${src}`, { n: +(g.pct * 100).toFixed(2), per: g.per, max: Math.round(g.max * 100), stat }));
+  }
+  if (m.growth?.cap) parts.push(t('class.mod.growCap', { max: +(m.growth.cap * 100).toFixed(1), stat }));
+  if (m.growth && account) parts.push(t('class.mod.growNow', { n: +(classGrowth(node, account).pct * 100).toFixed(1), stat }));
   if (m.critDamage) parts.push(t('class.mod.critDamage', { n: Math.round(m.critDamage * 100) }));
   if (m.critRate) parts.push(t('class.mod.critRate', { n: Math.round(m.critRate * 100) }));
   if (m.combo) parts.push(t('class.mod.combo', { n: Math.round(m.combo * 100) }));
@@ -23,7 +32,7 @@ export function classPassiveText(t, node) {
   if (m.forcedCrit) parts.push(m.forcedCrit === 1 ? t('class.mod.forcedCrit1') : t('class.mod.forcedCritN', { n: m.forcedCrit }));
   if (m.drain) parts.push(t('class.mod.drain'));
   else if (m.drainSmall) parts.push(t('class.mod.drainSmall'));
-  if (m.deathGuard) parts.push(t('class.mod.deathGuard', { n: Math.round(deathGuardChance(m.deathGuard) * 100) }));
+  if (m.deathGuard) parts.push(t('class.mod.deathGuard', { n: +(m.deathGuard * 100).toFixed(1) }));
   if (m.bp) parts.push(t('class.mod.bp', { n: m.bp }));
   const text = parts.join(', ');
   return text ? text[0].toUpperCase() + text.slice(1) + '.' : '';
@@ -59,14 +68,16 @@ export default function ClassButton({ run, inDock = false, iconOnly = false }) {
   const [confirmReset, setConfirmReset] = useState(false);
   const doReset = useGame((s) => s.resetClass);
   const autoBranch = useGame((s) => autoClassBranch(s.profile, run.classId));
-  const baseLevel = useGame((s) => baseAbilityLevel(s.profile?.bossWins ?? {}));
+  const profile = useGame((s) => s.profile);
+  const baseLevel = useGame((s) => bossLevel(s.profile?.bossWins ?? {}));
   const autoUnlocked = baseLevel >= AUTO_CLASS_MIN_BASE;
   const tree = heroClass(run.classId);
   if (!tree) return null;
   const path = classPathOf(run);
   const current = runClassNode(run);
-  const ready = canPromoteClass(run);
   const options = nextClassOptions(run);
+  // a promotion is ready when the level allows it and at least one choice is bought (subclasses)
+  const ready = canPromoteClass(run) && options.some((o) => subclassOwned(profile, o.id));
   const selected = (sel && tree.node(sel)) || (ready ? options[0] : current);
 
   function onPromote(node) {
@@ -77,7 +88,8 @@ export default function ClassButton({ run, inDock = false, iconOnly = false }) {
 
   const card = (n) => {
     const state = nodeState(n, run, current, path);
-    const canPick = state === 'option' && run.level >= n.minLevel;
+    const owned = subclassOwned(profile, n.id);
+    const canPick = state === 'option' && owned && run.level >= n.minLevel;
     return (
       <button
         key={n.id}
@@ -85,7 +97,7 @@ export default function ClassButton({ run, inDock = false, iconOnly = false }) {
         onClick={() => setSel(n.id)}
         aria-pressed={selected?.id === n.id}
       >
-        <b>{t(`class.${n.id}`)}</b>
+        <b>{!owned && '🔒 '}{t(`class.${n.id}`)}</b>
         <span className="cf-lv">{state === 'current' ? t('class.current') : state === 'past' ? '✓' : `LV ${fmtFull(n.minLevel)}`}</span>
       </button>
     );
@@ -96,7 +108,7 @@ export default function ClassButton({ run, inDock = false, iconOnly = false }) {
   return (
     <div className={`class-wrap ${inDock ? 'in-dock' : ''} ${iconOnly ? 'icon-only' : ''}`}>
       <button
-        className={inDock || iconOnly ? `dock-btn dock-class ${iconOnly ? 'dock-icon-only' : ''} ${ready ? 'can-promote' : ''}` : `btn small hud-btn class-btn ${ready ? 'can-promote' : ''}`}
+        className={inDock || iconOnly ? `dock-btn dock-class ${iconOnly ? 'dock-icon-only hud-big-icon' : ''} ${ready ? 'can-promote' : ''}` : `btn small hud-btn class-btn ${ready ? 'can-promote' : ''}`}
         onClick={() => setOpen(!open)}
         title={`${t(`class.${current.id}`)} · ${ready ? t('class.ready') : t('class.panel')}`}
         aria-label={t(`class.${current.id}`)}
@@ -146,8 +158,12 @@ export default function ClassButton({ run, inDock = false, iconOnly = false }) {
                   <span key={k} className={v > 0 ? 'up' : 'down'}>{t(`stat.${k}`)} {pctLabel(v)}</span>
                 ))}
               </span>
-              <span className="class-passive"><b>{t('class.passiveLabel')}</b>: {classPassiveText(t, selected)}</span>
-              {selState === 'option' && (
+              {classPassiveText(t, selected, accountProgress(profile, run)) && <span className="class-passive"><b>{t('class.passiveLabel')}</b>: {classPassiveText(t, selected, accountProgress(profile, run))}</span>}
+              {/* a subclass not bought yet: its unlock (base level / Slime Kings + gold) instead of promoting */}
+              {!subclassOwned(profile, selected.id) && selState !== 'current' && selState !== 'past' && (
+                <AccountUnlock kind={subclassKind(run.classId)} index={subclassIndex(selected.id)} />
+              )}
+              {selState === 'option' && subclassOwned(profile, selected.id) && (
                 <button className={`btn ${run.level >= selected.minLevel ? 'primary' : ''}`} disabled={run.level < selected.minLevel} onClick={() => onPromote(selected)}>
                   {run.level >= selected.minLevel
                     ? t('class.promote', { name: t(`class.${selected.id}`) })

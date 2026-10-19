@@ -3,6 +3,7 @@
  * Ports of Include_GameData/WinBoss_UpKyrakutaPowerLv.as and
  * Class/GameSaveData.as (kyaraExpTable / getkyaraLv / okKyaraLvUp).
  */
+import { CUSTOM_MAP_BOSSES } from '../encounters/customBosses.js';
 
 export const CHARACTER_COUNT = 16;
 
@@ -28,12 +29,62 @@ export function baseAbilityLevel(bossWins) {
   return n;
 }
 
-/** Cheat: marks every ability boss beaten on normal and hard, i.e. the max base ability level. */
+/** Map bosses of the world (bosses.json mapBosses, ids 0..MAP_BOSS_COUNT - 1). */
+export const MAP_BOSS_COUNT = 29;
+
+/**
+ * Bosses that raise the base level: the original map bosses, then the Surge bosses marked
+ * `baseLevel` (customBosses.js CUSTOM_MAP_BOSSES).
+ */
+export const BASE_LEVEL_BOSSES = Object.freeze([
+  ...Array.from({ length: MAP_BOSS_COUNT }, (_, id) => id),
+  ...Object.entries(CUSTOM_MAP_BOSSES).filter(([, b]) => b.baseLevel).map(([id]) => Number(id)),
+]);
+
+/** Highest base level: one per boss of BASE_LEVEL_BOSSES. */
+export const BASE_LEVEL_MAX = BASE_LEVEL_BOSSES.length;
+
+/**
+ * Base level ("BP", not in the original): distinct bosses of BASE_LEVEL_BOSSES beaten, in normal
+ * or abyssal mode, 0..BASE_LEVEL_MAX. It gates every unlock of the account (farm, echoes, slots,
+ * sets, abyssal mode, auto class...). baseAbilityLevel (the original's 9 ability bosses, max 18)
+ * still drives character power and character EXP.
+ */
+export function bossLevel(bossWins) {
+  let n = 0;
+  for (const id of BASE_LEVEL_BOSSES) if (bossWins?.[id] || bossWins?.[id + 100]) n += 1;
+  return n;
+}
+
+/** The abyssal (hard) mode opens at this base level (bossLevel). */
+export const ABYSS_UNLOCK_BASE = 10;
+export const abyssUnlocked = (bossWins) => bossLevel(bossWins ?? {}) >= ABYSS_UNLOCK_BASE;
+
+/** Cheat: marks every map boss beaten on normal and hard: max base level (BP) and max base ability level. */
 export function maxBaseAbilityWins(bossWins) {
   const next = { ...bossWins };
-  for (const id of ABILITY_BOSSES) {
+  for (const id of BASE_LEVEL_BOSSES) {
     next[id] = 1;
     next[id + 100] = 1;
+  }
+  return next;
+}
+
+/** Cheat: marks (or forgets) one map boss win, in normal or hard mode (bossWins key = id, or id + 100). */
+export function setBossWin(bossWins, id, hard, won) {
+  const key = id + (hard ? 100 : 0);
+  const next = { ...bossWins };
+  if (won) next[key] = 1;
+  else delete next[key];
+  return next;
+}
+
+/** Cheat: forgets every map boss win (normal and hard), i.e. base level and base ability 0; event bosses stay. */
+export function resetBaseAbilityWins(bossWins) {
+  const next = { ...bossWins };
+  for (const id of BASE_LEVEL_BOSSES) {
+    delete next[id];
+    delete next[id + 100];
   }
   return next;
 }

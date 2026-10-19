@@ -29,7 +29,7 @@ export const PHASE = Object.freeze({
  *   gold: number (for the heal price)
  * }
  */
-export function createBattle({ player, enemy, hardMode = false, gold = 0 }) {
+export function createBattle({ player, enemy, hardMode = false, gold = 0, boss = false }) {
   const maxHp = Math.floor(player.maxHp);
   return {
     phase: PHASE.PLAYER_TURN,
@@ -54,6 +54,9 @@ export function createBattle({ player, enemy, hardMode = false, gold = 0 }) {
     echo: player.echo ? { skill: player.echo.skill ?? null, resonance: player.echo.resonance ?? null } : null,
     echoHits: 0,
     resonanceUsed: false,
+    boss, // a map / event boss or a Slime King: healing potions can be used (once)
+    potionUsed: false,
+    classGuardUsed: false, // the class's lethal-hit guard fires once per battle
   };
 }
 
@@ -67,15 +70,28 @@ export function canRequestHeal(state) {
   return state.gold >= currentHealCost(state);
 }
 
-/** Whether a free heal (healing potion) can be queued now. */
-export function canQueueFreeHeal(state) {
-  return state.phase !== PHASE.WON && state.phase !== PHASE.LOST && !state.healQueued;
+/**
+ * Why a healing potion cannot be used now, or null when it can: 'over' (the fight ended), 'queued'
+ * (a heal is already queued), 'notBoss' (potions only work against bosses and Slime Kings) or
+ * 'used' (one potion per battle).
+ */
+export function freeHealBlock(state) {
+  if (state.phase === PHASE.WON || state.phase === PHASE.LOST) return 'over';
+  if (state.healQueued) return 'queued';
+  if (!state.boss) return 'notBoss';
+  if (state.potionUsed) return 'used';
+  return null;
 }
 
-/** Queues a full heal without paying gold (Farm healing potion; not in the original). */
+/** Whether a free heal (healing potion) can be queued now (freeHealBlock). */
+export function canQueueFreeHeal(state) {
+  return freeHealBlock(state) === null;
+}
+
+/** Queues a full heal without paying gold (Farm healing potion; not in the original): once per boss fight. */
 export function queueFreeHeal(state) {
   if (!canQueueFreeHeal(state)) return state;
-  return { ...state, healQueued: true };
+  return { ...state, healQueued: true, potionUsed: true };
 }
 
 /** Buys a full heal that is applied at the start of the next player turn. */
@@ -170,6 +186,7 @@ function enemyHit(state, rng) {
   const before = p.hp;
   let hp = before - roll.damage;
   let guarded = false;
+  let classGuardRolled = false;
   if (hp < 0) {
     hp = 0;
     if (before !== 1 && p.modifiers.deathGuard >= 1) {
@@ -178,10 +195,18 @@ function enemyHit(state, rng) {
         guarded = true;
       }
     }
+    // class passive (classes.js CLASS_GUARD_CHANCE): its own roll, only once per battle
+    if (!guarded && before !== 1 && (p.modifiers.classGuard ?? 0) > 0 && !state.classGuardUsed) {
+      classGuardRolled = true;
+      if (rng.next() < p.modifiers.classGuard) {
+        hp = 1;
+        guarded = true;
+      }
+    }
   }
   events.push({ type: 'enemyHit', damage: roll.damage, guarded, skill: e.skills.length ? e.skills[0] : 0 });
 
-  let next = { ...state, player: { ...p, hp }, turnsDone: state.turnsDone + 1 };
+  let next = { ...state, player: { ...p, hp }, turnsDone: state.turnsDone + 1, ...(classGuardRolled ? { classGuardUsed: true } : {}) };
 
   // Ancestral Echo resonance: once per battle, when the hero falls below half HP
   const res = state.echo?.resonance;
@@ -201,6 +226,17 @@ function enemyHit(state, rng) {
       hp = Math.min(p.maxHp, hp + amount);
       next = { ...next, player: { ...next.player, hp } };
       events.push({ type: 'echoResonance', kind: 'heal', amount });
+      // Lâmpada-Fátua: the healing spirit also strikes (`strike` x the best hit of the battle)
+      if (res.strike) {
+        const dmg = Math.max(1, Math.floor(Math.max(1, state.highestDamage) * res.strike));
+        const enemyHp = Math.max(0, e.hp - dmg);
+        next = { ...next, enemy: { ...e, hp: enemyHp }, highestDamage: Math.max(next.highestDamage, dmg) };
+        events.push({ type: 'echoResonance', kind: 'spirit', damage: dmg });
+        if (enemyHp === 0) {
+          events.push({ type: 'won' });
+          return { state: { ...next, phase: PHASE.WON }, events };
+        }
+      }
     }
   }
 
@@ -226,6 +262,12 @@ export function step(state, rng) {
 
 export function isOver(state) {
   return state.phase === PHASE.WON || state.phase === PHASE.LOST;
+}
+
+/** Gives up the battle (pause menu): the hero falls and it ends as a defeat. A finished battle is kept. */
+export function forfeit(state) {
+  if (isOver(state)) return state;
+  return { ...state, player: { ...state.player, hp: 0 }, healQueued: false, phase: PHASE.LOST, forfeited: true };
 }
 
 /** Runs the battle to completion (used by tests and simulations). */

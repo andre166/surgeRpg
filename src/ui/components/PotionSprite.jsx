@@ -4,7 +4,8 @@ import React, { useMemo } from 'react';
  * Potions and elixirs in pixel art (24x24), matching the crop sprites (CropSprite.jsx): pastel
  * liquids in glass with a white glint, warm brown outlines. Potions are corked bottles; elixirs
  * are ornate vials with golden caps. Each has its own shape and a detail (a heart bubble, a leaf
- * label, stars, a flame, a rune, a star of insight). Two bubbles rise in the liquid
+ * label, stars, a blood drop, a flame, a rune, a star of insight, a lightning
+ * bolt, a crown). Two bubbles rise in the liquid
  * (.pot-bubble, animated in CSS; hidden on tiny icons).
  */
 const S = 24;
@@ -48,6 +49,55 @@ const POTIONS = {
     },
     bubbles: [[11, 17], [13, 20]],
   },
+  blood_tonic: {
+    body: (x, y) => x >= 7 && x <= 16 && y >= 10 && y <= 21 && Math.abs(x + 0.5 - 12) + Math.abs(y + 0.5 - 16) <= 9,
+    liquid: 12, color: ['#ff9a8a', '#d63a2e', '#8a1e22'],
+    deco(g) {
+      rect(g, 10, 5, 4, 5, GLASS); cork(g, 9, 2, 6);
+      for (const [x, y] of [[12, 14], [11, 15], [12, 15], [13, 15], [11, 16], [12, 16], [13, 16], [12, 17]]) put(g, x, y, '#ffd0c8'); // blood drop
+    },
+    bubbles: [[9, 18], [15, 14]],
+  },
+  // Poção da Fortuna: a round golden flask with a four-leaf clover
+  fortune_brew: {
+    body: (x, y) => (x + 0.5 - 12) ** 2 + (y + 0.5 - 16) ** 2 <= 42,
+    liquid: 13, color: ['#fff0a0', '#f2c230', '#b8860b'],
+    deco(g) {
+      rect(g, 10, 5, 4, 5, GLASS); cork(g, 9, 2, 6);
+      for (const [x, y] of [[11, 14], [12, 14], [10, 15], [11, 15], [13, 15], [14, 15], [10, 16], [11, 16], [13, 16], [14, 16], [11, 17], [12, 17]]) put(g, x, y, '#7cc35e'); // clover leaves
+      put(g, 12, 15, '#478a44'); put(g, 12, 16, '#478a44'); put(g, 12, 18, '#478a44'); put(g, 13, 19, '#478a44'); // centre and stem
+    },
+    bubbles: [[9, 18], [15, 13]],
+  },
+  // threshold potions (secret rooms): a pale drop, a two-tone tonic, a dark essence with a white core
+  threshold_drop: {
+    body: (x, y) => ((x + 0.5 - 12) / 5.5) ** 2 + ((y + 0.5 - 16) / 6) ** 2 <= 1,
+    liquid: 12, color: ['#ffffff', '#dfe6f2', '#9aa6c4'],
+    deco(g) {
+      rect(g, 11, 6, 2, 4, GLASS); cork(g, 10, 3, 4);
+      put(g, 12, 15, '#5b6680'); put(g, 12, 17, '#5b6680'); put(g, 11, 16, '#5b6680'); put(g, 13, 16, '#5b6680'); // +
+    },
+    bubbles: [[10, 18], [14, 14]],
+  },
+  threshold_tonic: {
+    body: (x, y) => x >= 8 && x <= 15 && y >= 9 && y <= 21 && !((x === 8 || x === 15) && (y === 9 || y === 21)),
+    liquid: 11, color: ['#f2f4fa', '#8f98b0', '#2b2f3d'],
+    deco(g) {
+      rect(g, 10, 5, 4, 4, GLASS); cork(g, 9, 2, 6);
+      rect(g, 8, 16, 8, 6, '#3a3f52'); // the dark half
+      put(g, 12, 18, '#ffffff'); put(g, 11, 19, '#ffffff'); put(g, 12, 19, '#ffffff'); put(g, 13, 19, '#ffffff'); put(g, 12, 20, '#ffffff');
+    },
+    bubbles: [[10, 13], [14, 12]],
+  },
+  threshold_essence: {
+    body: (x, y) => (x + 0.5 - 12) ** 2 + (y + 0.5 - 15) ** 2 <= 49,
+    liquid: 11, color: ['#6a7088', '#2b2f3d', '#12141c'],
+    deco(g) {
+      rect(g, 10, 5, 4, 4, GLASS); rect(g, 9, 3, 6, 2, GOLD[1]); rect(g, 9, 3, 6, 1, GOLD[0]);
+      for (const [x, y] of [[12, 13], [11, 14], [12, 14], [13, 14], [10, 15], [11, 15], [12, 15], [13, 15], [14, 15], [11, 16], [12, 16], [13, 16], [12, 17]]) put(g, x, y, '#ffffff'); // white core
+    },
+    bubbles: [[9, 18], [15, 12]],
+  },
   fury_elixir: {
     body: (x, y) => y >= 8 && y <= 21 && Math.abs(x + 0.5 - 12) <= 7 - Math.abs(y - 14.5) * 0.9,
     liquid: 9, color: ['#ffc08a', '#ff7a3d', '#c0401e'],
@@ -79,6 +129,27 @@ const POTIONS = {
     },
     bubbles: [[9, 18], [15, 17]],
     glow: true,
+  },
+  swift_elixir: {
+    body: (x, y) => x >= 9 && x <= 14 && y >= 8 && y <= 21 && !((x === 9 || x === 14) && y === 21),
+    liquid: 10, color: ['#c6fff0', '#4fe0b8', '#22997e'],
+    deco(g) {
+      rect(g, 9, 5, 6, 2, GOLD[1]); rect(g, 9, 5, 6, 1, GOLD[0]); rect(g, 10, 7, 4, 1, GOLD[1]);
+      for (const [x, y] of [[8, 5], [7, 4], [6, 3], [15, 5], [16, 4], [17, 3]]) put(g, x, y, GOLD[0]); // wings
+      for (const [x, y] of [[13, 11], [12, 12], [11, 13], [12, 13], [13, 13], [12, 14], [11, 15]]) put(g, x, y, '#ffffff'); // lightning bolt
+    },
+    bubbles: [[10, 18], [13, 17]],
+  },
+  titan_elixir: {
+    body: (x, y) => y >= 9 && y <= 21 && Math.abs(x + 0.5 - 12) <= (y <= 16 ? 7 : 7 - (y - 16) * 1.3),
+    liquid: 11, color: ['#ff9aa8', '#d02a4a', '#7a1030'],
+    deco(g) {
+      rect(g, 8, 6, 8, 2, GOLD[1]); rect(g, 8, 6, 8, 1, GOLD[0]); rect(g, 10, 8, 4, 1, GOLD[1]);
+      for (const [x, y] of [[8, 5], [8, 4], [12, 5], [12, 4], [12, 3], [15, 5], [15, 4]]) put(g, x, y, GOLD[0]); // crown
+      for (let y = 13; y <= 17; y++) put(g, 12, y, GOLD[0]); // emblem
+      for (let x = 10; x <= 14; x++) put(g, x, 15, GOLD[0]);
+    },
+    bubbles: [[8, 13], [15, 12]],
   },
 };
 

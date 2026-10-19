@@ -53,3 +53,11 @@ export function rollDrop(args, rng) {
   if (rng.next() <= chance) return { type, itemId };
   return null;
 }
+
+/** Sandbox cheat (always drop): one of the enemy's drop entries at random, ignoring chances and caps. */
+export function forceDrop(drops, rng) {
+  const list = (drops ?? []).filter(Boolean);
+  if (!list.length) return null;
+  const { type, itemId } = list[Math.min(list.length - 1, Math.floor(rng.next() * list.length))];
+  return { type, itemId };
+}

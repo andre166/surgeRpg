@@ -7,13 +7,19 @@ import { useCallback } from 'react';
 import { useGame } from '../stores/gameStore.js';
 import en from './en.js';
 import pt from './pt.js';
+import es from './es.js';
+import ko from './ko.js';
+import ja from './ja.js';
 
 export const LANGUAGES = [
   { code: 'en', label: 'English' },
   { code: 'pt', label: 'Português' },
+  { code: 'es', label: 'Español' },
+  { code: 'ko', label: '한국어' },
+  { code: 'ja', label: '日本語' },
 ];
 
-const DICTS = { en, pt };
+const DICTS = { en, pt, es, ko, ja };
 
 export function translate(lang, key, vars) {
   const s = DICTS[lang]?.[key] ?? en[key] ?? key;

@@ -3,7 +3,7 @@
  * *:sandbox npm scripts). In regular builds the flag is the literal `false`, so everything it
  * guards is dropped from the bundle: players cannot turn it on.
  *
- * Sandbox mode shows the Cheats menu, marks the title screen, starts muted and uses its own save file, so
+ * Sandbox mode shows the Cheats menu, marks the title screen and uses its own save file, so
  * test runs never touch the real profile.
  */
 export const SANDBOX = import.meta.env.VITE_SANDBOX === '1';

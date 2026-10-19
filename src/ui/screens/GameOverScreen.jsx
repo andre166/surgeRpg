@@ -5,19 +5,21 @@ import { sfx } from '../../game/systems/audio.js';
 import { useT } from '../i18n/index.js';
 import PixelIcon, { LEVEL_ICON, HeroPortrait } from '../components/PixelIcon.jsx';
 import WoodBackdrop from '../components/WoodBackdrop.jsx';
+import { isMapBossId } from '../../core/encounters/customBosses.js';
 
 export default function GameOverScreen() {
   const t = useT();
   const run = useGame((s) => s.run);
   const profile = useGame((s) => s.profile);
   const finishRun = useGame((s) => s.finishRun);
+  const retryRun = useGame((s) => s.retryRun);
   const openFromMap = useGame((s) => s.openFromMap);
   useEffect(() => {
     sfx.gameOver();
   }, []);
   if (!run) return null;
   const record = run.level > profile.highestLevel;
-  const bosses = Object.keys(run.bossBeaten).filter((k) => Number(k) <= 28).length;
+  const bosses = Object.keys(run.bossBeaten).filter((k) => isMapBossId(Number(k))).length;
   const summary = [
     { icon: 'coins', label: t('over.totalGold'), value: `${fmt(run.totalGold)} G` },
     { icon: 'skull', label: t('over.deaths'), value: run.deaths },
@@ -52,9 +54,22 @@ export default function GameOverScreen() {
           ))}
         </div>
         <p className="hero-help">{t('over.note')}</p>
-        <div className="result-foot over-foot">
-          <button className="btn" onClick={() => openFromMap(SCREEN.EQUIPMENT)}><PixelIcon name="coins" size={18} />{t('over.spend', { gold: fmt(run.gold) })}</button>
-          <button className="btn primary" data-primary onClick={() => finishRun()}>{t('over.title2')}</button>
+        <div className="over-foot">
+          {/* the run's gold left: spend it on equipment or on the farm (both come back here) */}
+          <div className="over-spend">
+            <span className="over-spend-label"><PixelIcon name="coins" size={16} />{t('over.goldLeft')} <b>{fmt(run.gold)} G</b></span>
+            <div className="over-spend-row">
+              <button className="btn" onClick={() => openFromMap(SCREEN.EQUIPMENT)}><PixelIcon name="helmet" size={18} />{t('over.toEquipment')}</button>
+              <button className="btn" onClick={() => openFromMap(SCREEN.FARM)}><PixelIcon name="sprout" size={18} />{t('over.toFarm')}</button>
+            </div>
+          </div>
+          <div className="over-end-row">
+            <button className="btn" onClick={() => finishRun()}>{t('over.title2')}</button>
+            {/* a new run with the same hero (and mode and class), straight to the map */}
+            <button className="btn primary" data-primary onClick={() => retryRun()}>
+              <HeroPortrait index={run.characterIndex} size={18} />{t('over.again')}
+            </button>
+          </div>
         </div>
       </div>
     </div>

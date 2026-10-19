@@ -1,0 +1,26 @@
+{
+  "map": 3,
+  "areas": [
+    {
+      "id": 0,
+      "monsters": [
+        {
+          "sprite": "ene2_0d",
+          "weight": 10
+        },
+        {
+          "sprite": "ene2_0a",
+          "weight": 10
+        },
+        {
+          "sprite": "ene2_0b",
+          "weight": 10
+        },
+        {
+          "sprite": "ene2_0c",
+          "weight": 10
+        }
+      ]
+    }
+  ]
+}

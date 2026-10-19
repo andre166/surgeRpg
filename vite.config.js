@@ -1,8 +1,11 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import { fileURLToPath } from 'node:url';
+import { areaToolServer } from './scripts/areaToolServer.js';
 
 export default defineConfig({
-  plugins: [react()],
+  // areaToolServer: dev-only endpoints of the area tool (tools/areas.html)
+  plugins: [react(), areaToolServer(fileURLToPath(new URL('.', import.meta.url)))],
   base: './',
   server: { port: 8000, strictPort: true },
   build: {

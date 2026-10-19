@@ -22,6 +22,19 @@ export default function Toast() {
       </div>
     );
   }
+  // kind 'warn' (something is missing: gold, level...) or 'ok' (it worked): an icon badge, the message
+  // and a detail line saying what to do next; a warn gently shakes once it lands
+  if (toast.kind === 'warn' || toast.kind === 'ok') {
+    return (
+      <div className={`toast toast-rich toast-${toast.kind}`} key={toast.id} role={toast.kind === 'warn' ? 'alert' : 'status'}>
+        {toast.icon && <span className="toast-rich-icon"><PixelIcon name={toast.icon} size={24} /></span>}
+        <span className="toast-rich-body">
+          <b className="toast-rich-text">{toast.text}</b>
+          {toast.detail && <span className="toast-rich-detail">{toast.detail}</span>}
+        </span>
+      </div>
+    );
+  }
   return (
     <div className="toast" key={toast.id} role="status">
       {toast.text}

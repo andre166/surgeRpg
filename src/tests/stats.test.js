@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { computeStats } from '../core/attributes/stats.js';
+import { heroPassive, heroPassivePct, characterPowerWeights } from '../core/attributes/characterPower.js';
 import { EFFECT } from '../core/attributes/effects.js';
 
 const base = { hp: 100, atk: 10, def: 10, speed: 5, luck: 1 };
@@ -75,5 +76,25 @@ describe('computeStats (GData.as EqStUpdate)', () => {
   it('hard mode lowers max battle points to 10', () => {
     const s = computeStats({ base, equipment: null, character: { index: 0 }, hardMode: true });
     expect(s.modifiers.maxBattlePoints).toBe(10);
+  });
+});
+
+describe('hero passives', () => {
+  it('every hero has one distinct named passive on one of its affinity stats', () => {
+    const ids = new Set();
+    for (let i = 0; i < 16; i += 1) {
+      const p = heroPassive(i);
+      expect(characterPowerWeights(i)[p.stat], `hero ${i}`).toBeGreaterThan(0);
+      expect(p.pct).toBeCloseTo(0.01);
+      expect(heroPassivePct(i)).toEqual({ [p.stat]: p.pct });
+      ids.add(p.id);
+    }
+    expect(ids.size).toBe(16);
+  });
+
+  it('heroPct adds to the stat percents', () => {
+    const s = computeStats({ base, equipment: null, character: { index: 0, abilityLevel: 0, currentAbilityLevel: 0 }, heroPct: heroPassivePct(0) });
+    expect(s.bonusPercent.atk).toBe(0);
+    expect(s.bonusPercent.speed).toBeCloseTo(0.01);
   });
 });

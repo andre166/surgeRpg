@@ -22,6 +22,12 @@ describe('bestiary', () => {
     const lows = list.filter((e) => e.kind === 'enemy').map((e) => e.levels[0]);
     expect(lows).toEqual([...lows].sort((a, b) => a - b));
   });
+  it('the white / black room monsters (maps 13, 14, no area level) have their own rare tab', () => {
+    const rares = list.filter((e) => e.kind === 'rare');
+    expect(rares.length).toBeGreaterThan(0);
+    expect(rares.every((e) => e.maps.every((m) => m === 13 || m === 14))).toBe(true);
+    expect(list.filter((e) => e.kind === 'enemy').some((e) => e.maps.includes(13) || e.maps.includes(14))).toBe(false);
+  });
   it('records encounters and wins per enemy', () => {
     let p = createProfile();
     p = recordBestiary(p, 'pool_1_0#0');
@@ -69,5 +75,18 @@ describe('bestiary drop reveal', () => {
     expect(whereRevealed(undefined)).toBe(false);
     expect(whereRevealed({ seen: 5, defeated: 0 })).toBe(false);
     expect(whereRevealed({ seen: 5, defeated: 1 })).toBe(true);
+  });
+});
+
+describe('SK (different Slime Kings beaten)', () => {
+  it('counts each Slime King once, however many times it is beaten', async () => {
+    const { slimeKingWins, recordBestiary } = await import('../core/bestiary.js');
+    const { recordSlimeKingWin, tpLevel } = await import('../core/progression/talents.js');
+    let p = { bestiary: {}, slimeKingsBeaten: {} };
+    for (let i = 0; i < 5; i += 1) p = recordSlimeKingWin(recordBestiary(p, 'slime#1', true), 1).profile;
+    expect(slimeKingWins(p)).toBe(1); // five wins over the same one: 1 SK
+    p = recordSlimeKingWin(p, 2).profile;
+    expect(slimeKingWins(p)).toBe(2);
+    expect(slimeKingWins(p)).toBe(tpLevel(p)); // the same number as the talents
   });
 });

@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useGame } from '../stores/gameStore.js';
 import { STAT_POINT_GAIN } from '../../core/progression/characters.js';
 import { fmt, fmtFull } from '../components/format.js';
@@ -103,8 +103,8 @@ export default function StatsScreen() {
 
 /**
  * Auto distribution settings: on/off and a percentage per stat in steps of 5 (− / + or
- * typed, snapped on blur). Saving needs exactly 100%, on or off, typed values included.
- * Saved to the profile and applied after every battle.
+ * typed, snapped on blur). It is saved as soon as it adds up to exactly 100% (and when turned
+ * off), to the profile, so it carries over between runs; applied after every battle.
  */
 function AutoAllocPanel({ auto, onClose }) {
   const t = useT();
@@ -116,6 +116,16 @@ function AutoAllocPanel({ auto, onClose }) {
   const effective = Object.fromEntries(AUTO_STATS.map((k) => [k, drafts[k] != null ? snapPercent(drafts[k]) : pcts[k]]));
   const total = percentTotal(effective);
   const canSave = total === 100;
+
+  // every valid change is kept right away (on/off included), so closing the panel never loses it:
+  // with exactly 100% the toggle and the percentages are saved; turning it off always is
+  useEffect(() => {
+    const valid = percentTotal(pcts) === 100;
+    if (!valid && on) return;
+    const next = { on, weights: valid ? pcts : toPercents(auto.weights) };
+    const saved = { on: auto.on, weights: toPercents(auto.weights) };
+    if (JSON.stringify(next) !== JSON.stringify(saved)) save(next);
+  }, [on, pcts]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // a stat can only take what the others leave free (the total never passes 100)
   const setPct = (k, v) => {
@@ -165,9 +175,9 @@ function AutoAllocPanel({ auto, onClose }) {
           <span>{t('alloc.autoTotal')}</span>
           <b>{total}% / 100%</b>
         </div>
-        {total !== 100 && <p className="auto-warn">{t('alloc.autoNeed100')}</p>}
+        {total !== 100 ? <p className="auto-warn">{t('alloc.autoNeed100')}</p> : <p className="auto-help">{t('alloc.autoSaved')}</p>}
         <div className="row auto-foot">
-          <button className="btn" data-escape onClick={onClose}>{t('common.cancel')}</button>
+          <button className="btn" data-escape onClick={onClose}>{t('common.back')}</button>
           <button className="btn primary" data-primary disabled={!canSave} onClick={() => { if (!canSave) return; save({ on, weights: effective }); onClose(); }}>{t('alloc.save')}</button>
         </div>
       </div>

@@ -2,11 +2,13 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useGame } from '../stores/gameStore.js';
 import { Creature, Hero, EchoSpirit } from '../components/Sprite.jsx';
 import { heroEcho } from '../../core/echoes.js';
-import { fmt, fmtFull } from '../components/format.js';
-import { isOver, currentHealCost } from '../../core/battle/engine.js';
+import { fmt, fmtFull, fmtShort } from '../components/format.js';
+import { isOver, currentHealCost, freeHealBlock } from '../../core/battle/engine.js';
 import { sfx } from '../../game/systems/audio.js';
 import { useT } from '../i18n/index.js';
 import WoodBackdrop from '../components/WoodBackdrop.jsx';
+import PixelIcon from '../components/PixelIcon.jsx';
+import FarmIcon from '../components/FarmIcon.jsx';
 
 const STEP_MS = 520;
 // pause on the final blow before the result screen opens
@@ -22,6 +24,8 @@ export default function BattleScreen() {
   const endBattle = useGame((s) => s.endBattle);
   const usePotion = useGame((s) => s.battleUsePotion);
   const [paused, setPaused] = useState(false);
+  const [confirmForfeit, setConfirmForfeit] = useState(false);
+  const forfeit = useGame((s) => s.battleForfeit);
   const [floats, setFloats] = useState([]);
   const [shake, setShake] = useState('');
   const [echoCast, setEchoCast] = useState(''); // '' | 'cast' | 'resonance'
@@ -106,7 +110,13 @@ export default function BattleScreen() {
       <div className="battle-stage">
         <div className="enemy-side">
           <div className="nameplate">
-            {isBoss && <span className="tag boss">{t('battle.boss')}</span>}
+            {(isBoss || battle.area) && (
+              <div className="enemy-tags">
+                {isBoss && <span className="tag boss">{t('battle.boss')}</span>}
+                {/* the enemy's level: a map boss's or slime king's own, else the area's (hidden in abyssal mode, as on the map HUD) */}
+                {battle.area && <span className="tag enemy-lv">{run.hardMode ? 'LV ? ? ?' : `LV ${fmtShort(battle.enemyDef?.level ?? battle.area.level)}`}</span>}
+              </div>
+            )}
             <b>{enemy.name}</b>
             <div className="bar enemy"><div className="lag" style={{ width: `${ehpPct}%` }} /><div className="fill" style={{ width: `${ehpPct}%` }} /></div>
             <span className="small">{fmt(enemy.hp)} / {fmt(enemy.maxHp)}</span>
@@ -142,24 +152,109 @@ export default function BattleScreen() {
       </div>
       <div className="battle-log">
         {battle.playGemNullified && <p className="warn small">{t('battle.gemFailed')}</p>}
-        {battle.log.slice(-4).map((e, i) => <p key={i}>{describe(e, t)}</p>)}
+        {battle.log.slice(-4).map((e, i) => <p key={i} className={e.type === 'combo' ? 'log-combo' : undefined}>{describe(e, t)}</p>)}
       </div>
       {paused && (
-        <div className="modal" onClick={(e) => e.stopPropagation()}>
-          <div className="panel">
-            <h2>{t('battle.paused')}</h2>
-            <p>{t('battle.healOffer')} <b>{fmtFull(currentHealCost(st))} G</b></p>
-            <p className="small muted">{t('battle.youHave', { gold: fmtFull(st.gold) })}{st.healQueued ? t('battle.healQueued') : ''}</p>
-            <div className="row">
-              <button className="btn" disabled={!canHeal()} onClick={() => { heal(); setPaused(false); }}>{t('battle.buyHeal')}</button>
-              <button className="btn" disabled={!(profile?.farm?.items?.healing_potion > 0) || st.healQueued} onClick={() => { if (usePotion()) setPaused(false); }}>
-                {t('battle.usePotion', { n: profile?.farm?.items?.healing_potion ?? 0 })}
-              </button>
-              <button className="btn primary" data-escape onClick={() => setPaused(false)}>{t('battle.resume')}</button>
-            </div>
+        <PauseMenu
+          t={t}
+          st={st}
+          enemy={enemy}
+          run={run}
+          hpPct={hpPct}
+          ehpPct={ehpPct}
+          potions={profile?.farm?.items?.healing_potion ?? 0}
+          canHeal={canHeal()}
+          confirmForfeit={confirmForfeit}
+          setConfirmForfeit={setConfirmForfeit}
+          onHeal={() => { heal(); setPaused(false); }}
+          onPotion={() => { if (usePotion()) setPaused(false); }}
+          onResume={() => { setPaused(false); setConfirmForfeit(false); }}
+          onForfeit={() => { setPaused(false); setConfirmForfeit(false); forfeit(); }}
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * Pause menu of a battle (tap during the fight): where the fight stands (both HP bars, the gold),
+ * then the ways to recover as two option cards (full heal for gold, or a healing potion), each
+ * saying why when it cannot be used; Continue as the main button (a tap outside the panel also
+ * resumes) and giving up at the bottom, behind a confirmation.
+ */
+function PauseMenu({ t, st, enemy, run, hpPct, ehpPct, potions, canHeal, confirmForfeit, setConfirmForfeit, onHeal, onPotion, onResume, onForfeit }) {
+  const cost = currentHealCost(st);
+  const healNote = st.healQueued ? t('battle.queued') : st.gold < cost ? t('battle.noGold') : null;
+  // potions: one per battle, only against bosses and Slime Kings
+  const block = freeHealBlock(st);
+  const potionNote = block === 'queued' ? t('battle.queued') : block === 'notBoss' ? t('battle.potionBossOnly') : block === 'used' ? t('battle.potionUsed') : potions < 1 ? t('battle.noPotion') : null;
+  return (
+    <div className="modal pause-modal" onClick={(e) => { e.stopPropagation(); onResume(); }}>
+      <div className="panel pause-panel" role="dialog" aria-modal="true" aria-labelledby="pause-title" onClick={(e) => e.stopPropagation()}>
+        <header className="pause-head">
+          <h2 id="pause-title"><span className="pause-glyph" aria-hidden="true">❚❚</span>{t('battle.paused')}</h2>
+          <span className="hero-chip"><PixelIcon name="coins" size={16} /><b>{fmtFull(st.gold)} G</b></span>
+        </header>
+
+        {/* where the fight stands */}
+        <div className="pause-status">
+          <div className="pause-fighter">
+            <span className="pause-who">{t('battle.you')} · LV {fmtFull(run.level)}</span>
+            <div className="bar player"><div className="fill" style={{ width: `${hpPct}%` }} /></div>
+            <span className="small">{fmtFull(st.player.hp)} / {fmtFull(st.player.maxHp)}</span>
+          </div>
+          <span className="pause-vs" aria-hidden="true">VS</span>
+          <div className="pause-fighter enemy">
+            <span className="pause-who">{enemy.name}</span>
+            <div className="bar enemy"><div className="fill" style={{ width: `${ehpPct}%` }} /></div>
+            <span className="small">{fmt(enemy.hp)} / {fmt(enemy.maxHp)}</span>
           </div>
         </div>
-      )}
+
+        {st.healQueued && <p className="pause-ready">✓ {t('battle.healReady')}</p>}
+
+        {/* ways to recover */}
+        <h3 className="pause-sub">{t('battle.recover')}</h3>
+        <div className="pause-options">
+          <button className="pause-option" disabled={!canHeal} onClick={onHeal}>
+            <span className="pause-option-icon"><PixelIcon name="heart" size={30} /></span>
+            <span className="pause-option-text">
+              <span className="pause-option-title">
+                <b>{t('battle.healTitle')}</b>
+                <span className={`pause-option-cost ${healNote ? 'off' : ''}`}>{healNote ?? <><PixelIcon name="coins" size={14} />{fmtFull(cost)} G</>}</span>
+              </span>
+              <span className="pause-option-desc">{t('battle.healDesc')}</span>
+            </span>
+          </button>
+          <button className="pause-option" disabled={!!potionNote} onClick={onPotion}>
+            <span className="pause-option-icon"><FarmIcon id="healing_potion" size={30} /></span>
+            <span className="pause-option-text">
+              <span className="pause-option-title">
+                <b>{t('battle.potionTitle')}</b>
+                <span className={`pause-option-cost ${potionNote ? 'off' : ''}`}>{potionNote ?? t('battle.potionCount', { n: potions })}</span>
+              </span>
+              <span className="pause-option-desc">{t('battle.potionDesc')}</span>
+            </span>
+          </button>
+        </div>
+
+        <button className="btn primary pause-resume" data-primary data-escape onClick={onResume}>{t('battle.resume')}</button>
+
+        {/* give up: counts as a defeat; a second tap confirms */}
+        <div className="pause-forfeit">
+          {!confirmForfeit ? (
+            <button className="pause-forfeit-link" onClick={() => setConfirmForfeit(true)}>{t('battle.forfeit')}</button>
+          ) : (
+            <div className="pause-forfeit-confirm">
+              <span className="small">{t('battle.forfeitWarn')}</span>
+              <div className="row">
+                <button className="btn small" onClick={() => setConfirmForfeit(false)}>{t('common.cancel')}</button>
+                <button className="btn small danger" onClick={onForfeit}>{t('battle.forfeitConfirm')}</button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

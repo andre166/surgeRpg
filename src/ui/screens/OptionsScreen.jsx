@@ -5,12 +5,20 @@ import { sfx } from '../../game/systems/audio.js';
 import { useT, useLang, LANGUAGES } from '../i18n/index.js';
 import PixelIcon from '../components/PixelIcon.jsx';
 import WoodBackdrop from '../components/WoodBackdrop.jsx';
+import { abyssUnlocked, ABYSS_UNLOCK_BASE } from '../../core/progression/characters.js';
 
 /** A labelled options row: icon, label, then its control on the right. */
-function Opt({ icon, label, children }) {
+/** One option row: icon + label, its control, and an optional short description under the label. */
+function Opt({ icon, label, hint = null, children }) {
   return (
     <div className="opt-row">
-      <span className="opt-label"><PixelIcon name={icon} size={20} />{label}</span>
+      <span className="opt-label">
+        <PixelIcon name={icon} size={20} />
+        <span className="opt-label-text">
+          {label}
+          {hint && <span className="opt-hint">{hint}</span>}
+        </span>
+      </span>
       <div className="opt-control">{children}</div>
     </div>
   );
@@ -38,7 +46,10 @@ export default function OptionsScreen() {
   if (!profile) return null;
   const o = profile.options;
   // older saves only had the on/off switch: off reads as 0%
-  const music = o.bgmOn ? (o.bgm ?? 0.6) : 0;
+  const music = o.bgmOn ? (o.bgm ?? 1) : 0;
+  // the abyssal Battle button can be picked once the abyssal mode is unlocked
+  const abyssOpen = abyssUnlocked(profile.bossWins);
+  const battleButton = o.battleButton === 'abyss' && abyssOpen ? 'abyss' : 'normal';
 
   function back() {
     if (run && mapReturn) backToMap();
@@ -69,16 +80,32 @@ export default function OptionsScreen() {
             <button className={`btn small ${o.afterBattle === 2 ? 'active' : ''}`} aria-pressed={o.afterBattle === 2} onClick={() => setOptions({ afterBattle: 2 })}>{t('opt.afterBattle.stats')}</button>
           </div>
         </Opt>
-        <Opt icon="expand" label={t('opt.fullscreen')}>
-          <button className={`btn small ${o.fullscreen ? 'active' : ''}`} onClick={async () => { const on = await bridge.app.toggleFullscreen(); setOptions({ fullscreen: on }); }}>
-            {o.fullscreen ? t('common.on') : t('common.off')}
-          </button>
+        <Opt icon={battleButton === 'abyss' ? 'abyssEye' : 'swords'} label={t('opt.battleButton')} hint={t('opt.battleButton.hint')}>
+          <div className="opt-seg" role="group">
+            <button className={`btn small ${battleButton === 'normal' ? 'active' : ''}`} aria-pressed={battleButton === 'normal'} onClick={() => setOptions({ battleButton: 'normal' })}>{t('opt.battleButton.normal')}</button>
+            <button
+              className={`btn small ${battleButton === 'abyss' ? 'active' : ''}`}
+              aria-pressed={battleButton === 'abyss'}
+              disabled={!abyssOpen}
+              title={abyssOpen ? undefined : t('opt.battleButton.locked', { n: ABYSS_UNLOCK_BASE })}
+              onClick={() => setOptions({ battleButton: 'abyss' })}
+            >
+              {abyssOpen ? '' : '🔒 '}{t('opt.battleButton.abyss')}
+            </button>
+          </div>
         </Opt>
+        {!bridge.isAndroid && (
+          <Opt icon="expand" label={t('opt.fullscreen')}>
+            <button className={`btn small ${o.fullscreen ? 'active' : ''}`} onClick={async () => { const on = await bridge.app.toggleFullscreen(); setOptions({ fullscreen: on }); }}>
+              {o.fullscreen ? t('common.on') : t('common.off')}
+            </button>
+          </Opt>
+        )}
       </div>
-      <p className="hero-help">{t('opt.keys')}</p>
+      {!bridge.isAndroid && <p className="hero-help">{t('opt.keys')}</p>}
       <footer className="hero-foot">
         <div className="row">
-          {bridge.isElectron && <button className="btn danger" onClick={() => bridge.app.quit()}>{t('opt.quit')}</button>}
+          {(bridge.isElectron || bridge.isAndroid) && <button className="btn danger" onClick={() => bridge.app.quit()}>{t('opt.quit')}</button>}
           <button className="btn" data-escape onClick={back}>{t('common.back')}</button>
         </div>
       </footer>

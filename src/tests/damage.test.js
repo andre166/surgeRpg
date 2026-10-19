@@ -78,10 +78,13 @@ describe('helpers', () => {
     expect(drainAmount(100, { drainSmall: false, drain: true })).toBe(Math.floor(100 * 0.039 + 1));
     expect(drainAmount(100, { drainSmall: false, drain: false })).toBe(0);
   });
-  it('combo chance low-HP bonus and cap', () => {
+  it('combo chance low-HP bonus and cap (0.75 in Surge, 0.8 in the original)', () => {
     expect(comboChance(0.3, 1)).toBe(0.3);
     expect(comboChance(0.3, 0.2)).toBeCloseTo(0.43);
-    expect(comboChance(0.75, 0.2)).toBe(0.8);
+    expect(comboChance(0.75, 0.2)).toBe(0.75);
+  });
+  it('combo chance stays the same for every combo chained in the turn', () => {
+    expect(comboChance(0.6, 1)).toBe(0.6);
   });
   it('heal cost = g/2 + maxHp/2 + 3000', () => {
     expect(healCost(10000, 500)).toBe(8250);

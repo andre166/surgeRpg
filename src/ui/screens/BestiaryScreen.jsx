@@ -10,8 +10,11 @@ import PixelIcon from '../components/PixelIcon.jsx';
 import WoodBackdrop from '../components/WoodBackdrop.jsx';
 import { useCompact } from '../responsive.js';
 
+/** Kinds drawn as regular monsters (the others with the boss look). */
+const MONSTER_KINDS = new Set(['enemy', 'rare']);
 const TABS = [
   { kind: 'enemy', label: 'best.enemies', icon: 'paw' },
+  { kind: 'rare', label: 'best.rares', icon: 'orb' },
   { kind: 'boss', label: 'best.bosses', icon: 'skull' },
   { kind: 'slime', label: 'best.slimes', icon: 'flask' },
   { kind: 'event', label: 'best.events', icon: 'star' },
@@ -84,7 +87,7 @@ export default function BestiaryScreen() {
             const known = isKnown(e.key);
             return (
               <button key={e.key} ref={measure} className={`best-cell ${known ? '' : 'unknown'} ${selKey === e.key ? 'selected' : ''}`} onClick={() => setSelKey(e.key)}>
-                <Creature sprite={e.key} size={56} boss={e.kind !== 'enemy'} silhouette={!known} />
+                <Creature sprite={e.key} size={56} boss={!MONSTER_KINDS.has(e.kind)} silhouette={!known} />
                 <span>{known ? e.name : '????'}</span>
                 {SANDBOX && <code className="best-id">{e.key}</code>}
               </button>
@@ -157,12 +160,14 @@ function VirtualGrid({ items, minCell, renderCell }) {
 }
 
 function Detail({ e, rec: saved, reveal = false, profile, t }) {
+  // items owned now: the run's inventory during a run (drops and cheats change it), else the profile's
+  const inventory = useGame((s) => s.run?.inventory) ?? profile.inventory;
   const rec = saved ?? { seen: 0, defeated: 0 };
   const known = reveal || rec.seen > 0;
   if (!known) {
     return (
       <>
-        <div className="best-portrait unknown"><Creature sprite={e.key} size={140} boss={e.kind !== 'enemy'} silhouette /></div>
+        <div className="best-portrait unknown"><Creature sprite={e.key} size={140} boss={!MONSTER_KINDS.has(e.kind)} silhouette /></div>
         <h2>????</h2>
         <SandboxId e={e} />
         <p className="muted small">{t('best.unknown')}</p>
@@ -173,14 +178,14 @@ function Detail({ e, rec: saved, reveal = false, profile, t }) {
   const drops = e.drops.filter(Boolean);
   return (
     <>
-      <div className="best-portrait"><Creature sprite={e.key} size={140} boss={e.kind !== 'enemy'} /></div>
+      <div className="best-portrait"><Creature sprite={e.key} size={140} boss={!MONSTER_KINDS.has(e.kind)} /></div>
       <h2>{e.name}</h2>
       <SandboxId e={e} />
       <div className="stat-lines small">
         <span>{t('stat.hp')}</span><b>{fmt(e.hp)}</b>
         <span>{t('stat.atk')}</span><b>{fmt(e.atk)}</b>
         <span>{t('best.gold')}</span><b>{fmt(e.gold)} G</b>
-        {e.kind === 'slime' && <><span>TP</span><b className="glow">+{e.talentPoints}</b></>}
+        {e.kind === 'slime' && <><span>SK</span><b className="glow">+1</b></>}
         <span>{t('best.seen')}</span><b>{fmtFull(rec.seen)}</b>
         <span>{t('best.defeated')}</span><b>{fmtFull(rec.defeated)}</b>
       </div>
@@ -198,7 +203,7 @@ function Detail({ e, rec: saved, reveal = false, profile, t }) {
         <ul className="best-drops small">
           {drops.map((d, i) => {
             const item = lists[d.type]?.[d.itemId];
-            const have = ownedCount(profile.inventory, d.type, d.itemId) > 0 || (item?.price ?? 0) > 0;
+            const have = ownedCount(inventory, d.type, d.itemId) > 0;
             return <li key={i}>{have && item ? item.name : '????'} <span className="muted">· {Math.round(d.chance * 1000) / 10}%</span></li>;
           })}
         </ul>
@@ -215,6 +220,7 @@ function SandboxId({ e }) {
 
 function Where({ e, t }) {
   if (e.kind === 'event') return <p className="small">{t('best.whereEvent')}</p>;
+  if (e.kind === 'rare') return <p className="small">{t('best.whereRare', { rooms: e.maps.map((m) => t(m === 13 ? 'best.whiteRoom' : 'best.blackRoom')).join(', ') })}{e.hard ? ` · ${t('best.hardOnly')}` : ''}</p>;
   const lv = e.levels.length ? (e.levels.length === 1 ? `LV ${fmtFull(e.levels[0])}` : `LV ${fmtFull(e.levels[0])}–${fmtFull(e.levels[e.levels.length - 1])}`) : '';
   return (
     <p className="small">

@@ -1,122 +1,131 @@
 /**
- * Talent tree (not in the original game): permanent passive percent bonuses bought
- * with talent points (TP), incremental-game style. TP only come from slime bosses
- * (src/core/encounters/slimeBosses.js).
+ * Talent tree (not in the original game): permanent passive bonuses that grow with the account's
+ * TP level.
  *
- * Talents belong to a hero: every hero has its own TP and its own tree
- * (profile.heroTalents[heroIndex]); TP from a slime go to the hero of that run.
+ * The TP level works like the base level (progression/characters.js bossLevel), but for Slime
+ * Kings: +1 for every different Slime King beaten (src/core/encounters/slimeBosses.js), in either
+ * mode, shared by every hero (profile.slimeKingsBeaten). Nothing is spent: every talent of a bought
+ * tier (progression/unlocks.js talentTierKind) has rank = TP level, up to its max rank. At TP levels
+ * TALENT_MILESTONES each active talent (rank > 0) also gains MILESTONE_BONUS more.
  *
- * Five branches (one per stat), five talents each. Inside a branch, a talent unlocks
- * once the previous one reaches UNLOCK_RANK (or its max rank if lower). Each rank costs
- * ceil(baseCost * COST_GROWTH^rank) TP. Bonuses add to the stat percent bonus of
- * computeStats (applied to base + flat, like equipment percents).
+ * Four branches, three talents each. A talent boosts a stat percent (pct, applied to base + flat
+ * like equipment percents) or a battle / map modifier (mods, as the echo passives:
+ * echoes.applyEchoPassive).
  */
 
-export const COST_GROWTH = 1.35;
-export const UNLOCK_RANK = 3;
+import { SLIME_IDS } from '../encounters/slimeBosses.js';
 
-/** Talent tiers shared by every branch: max rank, percent per rank, base cost, and which stat it boosts. */
-const TIERS = [
-  { maxRank: 10, perRank: 0.02, baseCost: 1 },
-  { maxRank: 10, perRank: 0.04, baseCost: 2 },
-  { maxRank: 5, perRank: 0.03, baseCost: 4, cross: true },
-  { maxRank: 5, perRank: 0.08, baseCost: 8 },
-  { maxRank: 3, perRank: 0.15, baseCost: 20 },
-];
+/** TP levels that give every active talent MILESTONE_BONUS more. */
+export const TALENT_MILESTONES = [3, 6, 9, 12];
+export const MILESTONE_BONUS = 0.003;
+/** One TP level per Slime King. */
+export const TP_MAX = SLIME_IDS.length;
+export const TALENT_MAX_RANK = 10;
 
-/** Branch stat and the stat its third (cross) talent boosts. */
+/**
+ * What a talent boosts: `kind` 'pct' (a stat of computeStats) or 'mods' (a modifier of
+ * stats.defaultModifiers; moveSpeedPct is a share of the base walking speed).
+ */
+export const TALENT_EFFECTS = {
+  hp: { kind: 'pct', key: 'hp' },
+  atk: { kind: 'pct', key: 'atk' },
+  def: { kind: 'pct', key: 'def' },
+  speed: { kind: 'pct', key: 'speed' },
+  luck: { kind: 'pct', key: 'luck' },
+  gold: { kind: 'mods', key: 'goldBonus' },
+  exp: { kind: 'mods', key: 'expMultiplier' },
+  move: { kind: 'mods', key: 'moveSpeedPct' },
+  critDmg: { kind: 'mods', key: 'critDamageMultiplier' },
+  critRate: { kind: 'mods', key: 'critRatePlus' },
+};
+
+/** Branches and their three talents, in tier order: [effect, bonus per rank]. */
 const BRANCHES = [
-  { id: 'atk', cross: 'speed' },
-  { id: 'def', cross: 'hp' },
-  { id: 'speed', cross: 'atk' },
-  { id: 'hp', cross: 'def' },
-  { id: 'luck', cross: 'atk' },
+  { id: 'atk', talents: [['atk', 0.008], ['critRate', 0.006], ['hp', 0.007]] },
+  { id: 'def', talents: [['def', 0.009], ['hp', 0.005], ['luck', 0.008]] },
+  { id: 'speed', talents: [['move', 0.005], ['speed', 0.009], ['critDmg', 0.006]] },
+  { id: 'luck', talents: [['luck', 0.009], ['gold', 0.008], ['exp', 0.011]] },
 ];
 
-/** Flat list of talents: { id: 'atk1'..'luck5', branch, tier (0-4), stat, maxRank, perRank, baseCost }. */
-export const TALENTS = BRANCHES.flatMap((b) => TIERS.map((t, i) => ({
+/** Flat list of talents: { id: 'atk1'..'luck3', branch, tier (0-2), effect, maxRank, perRank }. */
+export const TALENTS = BRANCHES.flatMap((b) => b.talents.map(([effect, perRank], i) => ({
   id: `${b.id}${i + 1}`,
   branch: b.id,
   tier: i,
-  stat: t.cross ? b.cross : b.id,
-  maxRank: t.maxRank,
-  perRank: t.perRank,
-  baseCost: t.baseCost,
+  effect,
+  maxRank: TALENT_MAX_RANK,
+  perRank,
 })));
 
 export const TALENT_BRANCHES = BRANCHES.map((b) => b.id);
 const BY_ID = Object.fromEntries(TALENTS.map((t) => [t.id, t]));
+export const talentDef = (id) => BY_ID[id];
 
-export function createTalents() {
-  return { points: 0, earned: 0, ranks: {} };
+/** Slime King ids beaten by the account (either mode). */
+export function slimeKingsBeaten(profile) {
+  const beaten = profile?.slimeKingsBeaten ?? {};
+  return SLIME_IDS.filter((id) => beaten[id]);
 }
 
-/** A hero's talent tree ({ points, earned, ranks }); empty for heroes without any. */
-export function heroTalents(profile, characterIndex) {
-  const t = profile?.heroTalents?.[characterIndex];
-  return t ? { ...createTalents(), ...t, ranks: { ...(t.ranks ?? {}) } } : createTalents();
+/** Saves from before profile.slimeKingsBeaten: the Slime Kings the bestiary saw defeated. */
+export function slimeKingsFromBestiary(bestiary) {
+  const out = {};
+  for (const [key, e] of Object.entries(bestiary ?? {})) {
+    if (key.startsWith('slime#') && (e?.defeated ?? 0) > 0) out[Number(key.slice(6))] = 1;
+  }
+  return out;
 }
 
-export function setHeroTalents(profile, characterIndex, talents) {
-  return { ...profile, heroTalents: { ...(profile.heroTalents ?? {}), [characterIndex]: talents } };
+/** The account's TP level: how many different Slime Kings it has beaten (0..TP_MAX). */
+export function tpLevel(profile) {
+  return slimeKingsBeaten(profile).length;
 }
 
-export function talentRank(talents, id) {
-  return talents?.ranks?.[id] ?? 0;
+/** How many of TALENT_MILESTONES the TP level has reached. */
+export function milestonesReached(tp) {
+  return TALENT_MILESTONES.filter((m) => tp >= m).length;
 }
 
-/** TP cost of the next rank (null when maxed). */
-export function talentCost(id, rank) {
+/** Rank of a talent at a TP level, with `tiers` tiers of its branch bought (0 when its tier is not). */
+export function talentRank(id, tp, tiers = Infinity) {
   const t = BY_ID[id];
-  if (!t || rank >= t.maxRank) return null;
-  return Math.ceil(t.baseCost * COST_GROWTH ** rank);
+  if (!t || t.tier >= tiers) return 0;
+  return Math.max(0, Math.min(t.maxRank, tp));
 }
 
-export function isTalentUnlocked(talents, id) {
-  const t = BY_ID[id];
-  if (!t) return false;
-  if (t.tier === 0) return true;
-  const prev = TALENTS.find((x) => x.branch === t.branch && x.tier === t.tier - 1);
-  return talentRank(talents, prev.id) >= Math.min(UNLOCK_RANK, prev.maxRank);
+/** Bonus (fraction) a talent gives at a TP level: its ranks plus the milestone bonuses. */
+export function talentBonus(id, tp, tiers = Infinity) {
+  const rank = talentRank(id, tp, tiers);
+  if (rank <= 0) return 0;
+  return rank * BY_ID[id].perRank + milestonesReached(tp) * MILESTONE_BONUS;
+}
+
+/** Total bonus per effect ({ atk: 0.04, gold: 0.08, ... }; every TALENT_EFFECTS key). */
+export function talentTotals(tp, tiersByBranch = {}) {
+  const out = Object.fromEntries(Object.keys(TALENT_EFFECTS).map((k) => [k, 0]));
+  for (const t of TALENTS) out[t.effect] += talentBonus(t.id, tp, tiersByBranch[t.branch] ?? Infinity);
+  return out;
 }
 
 /**
- * 'ok' | 'tier' (its tier is not bought, progression/unlocks.js talentTiers) | 'locked' | 'max' | 'no-points'.
- * `tiers`: how many tiers the account bought.
+ * The tree as a passive for computeStats ({ pct, mods }, like an echo's) at a TP level;
+ * `tiersByBranch[branch]`: how many tiers of each branch are bought (missing = all).
  */
-export function talentBuyStatus(talents, id, tiers = Infinity) {
-  if (BY_ID[id] && BY_ID[id].tier >= tiers) return 'tier';
-  if (!isTalentUnlocked(talents, id)) return 'locked';
-  const cost = talentCost(id, talentRank(talents, id));
-  if (cost == null) return 'max';
-  if ((talents?.points ?? 0) < cost) return 'no-points';
-  return 'ok';
-}
-
-export function buyTalent(talents, id, tiers = Infinity) {
-  if (talentBuyStatus(talents, id, tiers) !== 'ok') return talents;
-  const rank = talentRank(talents, id);
-  const cost = talentCost(id, rank);
-  return { ...talents, points: talents.points - cost, ranks: { ...talents.ranks, [id]: rank + 1 } };
-}
-
-/** Respec: refunds every point spent. */
-export function resetTalents(talents) {
-  let refund = 0;
-  for (const [id, rank] of Object.entries(talents?.ranks ?? {})) {
-    for (let r = 0; r < rank; r += 1) refund += talentCost(id, r) ?? 0;
+export function talentPassive(tp, tiersByBranch = {}) {
+  const pct = {};
+  const mods = {};
+  for (const [effect, v] of Object.entries(talentTotals(tp, tiersByBranch))) {
+    if (!v) continue;
+    const { kind, key } = TALENT_EFFECTS[effect];
+    const into = kind === 'pct' ? pct : mods;
+    into[key] = (into[key] ?? 0) + v;
   }
-  return { ...talents, points: (talents?.points ?? 0) + refund, ranks: {} };
+  return { pct, mods };
 }
 
-/** Percent bonus per stat as fractions ({ atk: 0.12, ... }). */
-export function talentPercents(talents) {
-  const pct = { hp: 0, atk: 0, def: 0, speed: 0, luck: 0 };
-  for (const t of TALENTS) pct[t.stat] += talentRank(talents, t.id) * t.perRank;
-  return pct;
-}
-
-export function earnTalentPoints(talents, amount) {
-  const base = talents ?? createTalents();
-  return { ...base, points: base.points + amount, earned: base.earned + amount };
+/** Records a Slime King win; `levelUp` when it was a new one (the TP level went up). */
+export function recordSlimeKingWin(profile, slimeId) {
+  const before = tpLevel(profile);
+  const next = { ...profile, slimeKingsBeaten: { ...(profile.slimeKingsBeaten ?? {}), [slimeId]: 1 } };
+  return { profile: next, levelUp: tpLevel(next) > before };
 }

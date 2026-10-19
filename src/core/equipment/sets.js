@@ -2,7 +2,7 @@
  * Equipment sets. Port of Class/GData_ItemEquipSet.as, Class/GameSaveData_ItemEquipSet.as and
  * Class_StMapMenu/StMapMenu_soubiSet.as:
  *   - 5 sets of 16 slots; set 1 is open, the others unlock in order for run gold
- *     (EQUIPMENT_SET_UNLOCK_COST: 300k, 1.5M, 2.1M, 4M);
+ *     (EQUIPMENT_SET_UNLOCK_COST: 130k, 1M, 1.46M, 2.2M; the original asks 110k, 1.38M, 1.98M, 3.88M);
  *   - switching loads the set into the equipped slots; equipping writes into the active set;
  *   - unlocking an accessory slot unlocks it in every set (SlotLockKaizyo);
  *   - sets and the unlock count belong to the account: the run carries a copy and the game
@@ -12,7 +12,8 @@
  * event boss or slime king) it is equipped automatically for that battle and the previous
  * equipment comes back afterwards.
  */
-import { SLOT, SLOT_COUNT, EQUIPMENT_SET_COUNT, EQUIPMENT_SET_UNLOCK_COST, EQUIPMENT_SET_UNLOCK_BASE, equippedCount, ownedCount, initialSlots } from './slots.js';
+import { SLOT, SLOT_COUNT, EQUIPMENT_SET_COUNT, EQUIPMENT_SET_UNLOCK_COST, EQUIPMENT_SET_UNLOCK_NEED, equippedCount, ownedCount, initialSlots } from './slots.js';
+import { plotNeedMet } from '../farm.js';
 import { ITEM_TYPE } from './items.js';
 
 export const NORMAL_SETS = 4;
@@ -43,8 +44,9 @@ export function sanitizeSlots(slots, inventory, locks) {
       if (out[s] === SLOT.LOCKED) out[s] = SLOT.EMPTY;
     }
   }
-  if (!(out[0] >= 0 && ownedCount(inventory, ITEM_TYPE.WEAPON, out[0]) >= 1)) out[0] = 0;
-  if (!(out[1] >= 0 && ownedCount(inventory, ITEM_TYPE.ARMOR, out[1]) >= 1)) out[1] = 0;
+  // weapon / armor: an empty slot stays empty (unequipped); one not owned falls back to the starting item
+  if (out[0] !== SLOT.EMPTY && !(out[0] >= 0 && ownedCount(inventory, ITEM_TYPE.WEAPON, out[0]) >= 1)) out[0] = 0;
+  if (out[1] !== SLOT.EMPTY && !(out[1] >= 0 && ownedCount(inventory, ITEM_TYPE.ARMOR, out[1]) >= 1)) out[1] = 0;
   for (let s = 2; s < SLOT_COUNT; s += 1) {
     const id = out[s];
     if (id < 0) continue;
@@ -81,25 +83,25 @@ export function nextSetCost(run) {
   return es.unlocked >= EQUIPMENT_SET_COUNT ? null : EQUIPMENT_SET_UNLOCK_COST[es.unlocked - 1];
 }
 
-/** Base level the next set needs (EQUIPMENT_SET_UNLOCK_BASE), or null when all are open. */
-export function nextSetBase(run) {
+/** What the next set needs (EQUIPMENT_SET_UNLOCK_NEED: { baseLevel } or { slimeKings }), or null when all are open. */
+export function nextSetNeed(run) {
   const es = runSets(run);
-  return es.unlocked >= EQUIPMENT_SET_COUNT ? null : EQUIPMENT_SET_UNLOCK_BASE[es.unlocked - 1];
+  return es.unlocked >= EQUIPMENT_SET_COUNT ? null : EQUIPMENT_SET_UNLOCK_NEED[es.unlocked - 1];
 }
 
-/** Can the next set be bought? 'ok' | 'max' | 'level' (base level too low) | 'gold'. */
-export function setUnlockStatus(run, baseLevel = Infinity) {
+/** Can the next set be bought? 'ok' | 'max' | 'level' (base level or Slime Kings too low) | 'gold'. */
+export function setUnlockStatus(run, baseLevel = Infinity, slimeWins = Infinity) {
   const cost = nextSetCost(run);
   if (cost == null) return 'max';
-  if (baseLevel < nextSetBase(run)) return 'level';
+  if (!plotNeedMet(nextSetNeed(run), baseLevel, slimeWins)) return 'level';
   if (run.gold < cost) return 'gold';
   return 'ok';
 }
 
 /** Unlocks the next set for run gold (SetLockKaizyo); it starts as a copy of the current equipment. */
-export function unlockNextSet(run, baseLevel = Infinity) {
+export function unlockNextSet(run, baseLevel = Infinity, slimeWins = Infinity) {
   const cost = nextSetCost(run);
-  if (setUnlockStatus(run, baseLevel) !== 'ok') return run;
+  if (setUnlockStatus(run, baseLevel, slimeWins) !== 'ok') return run;
   const es = runSets(syncActiveSet(run));
   const sets = es.sets.slice();
   sets[es.unlocked] = run.slots.slice();

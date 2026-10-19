@@ -1,6 +1,5 @@
 import React from 'react';
 import { useGame, SCREEN } from '../stores/gameStore.js';
-import { heroTalents } from '../../core/progression/talents.js';
 import { useT } from '../i18n/index.js';
 import PixelIcon from './PixelIcon.jsx';
 
@@ -23,7 +22,7 @@ export default function HeroTabs() {
   const fromRun = useGame((s) => !!(s.run && s.mapReturnScreen));
   const openFromMap = useGame((s) => s.openFromMap);
   if (!fromRun) return null;
-  const badges = { [SCREEN.TALENTS]: heroTalents(profile, run.characterIndex).points };
+  const badges = {};
 
   return (
     <nav className="hero-tabs" role="tablist">

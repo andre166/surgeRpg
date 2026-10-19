@@ -24,6 +24,16 @@ export function scaledWeaponStats(item, copies) {
   return { plus: item.flat + lvPlus, multi: item.percent + lvMulti };
 }
 
+/**
+ * What the extra copies add to a weapon or armor (scaledWeaponStats minus the base item):
+ * { plus, multi } (multi in percent), both 0 below two copies. Shown like the original's
+ * plusStr / multiStr ("5 +20", "100% +2%").
+ */
+export function copyBonus(item, copies) {
+  const s = scaledWeaponStats(item, copies);
+  return { plus: s.plus - item.flat, multi: s.multi - item.percent };
+}
+
 /** Builds the equipment input of computeStats() from the catalog, inventory and equipped slots. */
 export function resolveEquipment(catalog, inventory, slots) {
   const weaponId = slots[0];

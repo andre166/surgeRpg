@@ -12,8 +12,11 @@
  *
  * Keys are the battle / bestiary ids: `boss#<id>`, `event#<id>` and `slime#<id>`.
  */
-import bossData from '../data/bosses.json';
-import { SLIME_BOSS_IDS, slimeName } from '../core/encounters/slimeBosses.js';
+import bossJson from '../data/bosses.json';
+import { SLIME_IDS, slimeName } from '../core/encounters/slimeBosses.js';
+import { withCustomBosses } from '../core/encounters/customBosses.js';
+
+const bossData = withCustomBosses(bossJson);
 
 export const BOSS_SIZE = 48;
 const S = BOSS_SIZE;
@@ -481,7 +484,9 @@ const variantOf = (name) => [...name].reduce((h, ch) => (h * 31 + ch.charCodeAt(
 
 for (const [id, b] of Object.entries(bossData.mapBosses)) {
   const n = Number(id);
-  BOSSES[`boss#${id}`] = { name: b.name, type: titleOf(b.name), v: variantOf(b.name), palette: elementOf(b.name), aura: n >= 20 ? 'violet' : n >= 10 ? 'red' : null };
+  // Surge-only bosses (customBosses.js) have no aura, like the early original bosses at their levels
+  const aura = b.custom ? null : n >= 20 ? 'violet' : n >= 10 ? 'red' : null;
+  BOSSES[`boss#${id}`] = { name: b.name, type: titleOf(b.name), v: variantOf(b.name), palette: elementOf(b.name), aura };
 }
 for (const [id, e] of Object.entries(bossData.eventBosses)) {
   const line0 = e.normal ?? e.hard;
@@ -499,8 +504,10 @@ const SLIME_COLORS = {
   Frost: ['#f0fbff', '#a8e0f8', '#5aa8d8', '#0e2a40', '#ffffff'],
   Magma: ['#ffb070', '#e0502a', '#8a1e10', '#200604', '#ffe080'],
   Shadow: ['#8a7aa0', '#4a3a62', '#261c38', '#06040c', '#ff4a5a'],
+  Prism: ['#fff0ff', '#e0a8f0', '#8a6ad8', '#1e1440', '#a0fff0'],
+  Storm: ['#e0e8ff', '#8a9ad8', '#4a5a9e', '#10163a', '#fff27a'],
 };
-for (const id of SLIME_BOSS_IDS) {
+for (const id of SLIME_IDS) {
   const name = slimeName(id);
   const kind = name.split(' ')[0];
   // v carries the kind: Slime() draws that king's feature

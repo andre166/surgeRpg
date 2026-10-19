@@ -10,6 +10,7 @@
  *   - the player loses:      the penalty stays (net cost 3 BP, 5 in hard mode).
  * BP never displays below 0; the run ends when BP reaches 0 after a battle.
  */
+import { CUSTOM_MAP_BOSSES } from '../encounters/customBosses.js';
 
 export function battlePointsLeft(state) {
   const left = state.maxBattlePoints - state.battlesUsed;
@@ -46,7 +47,8 @@ export function onBattleLost(state) {
 /** Boss BP refund table (Include_GameData/WinBoss_PlusNokoriBattleTimes.as). */
 export const BOSS_BP_BONUS = [3, 7, 4, 3, 3, 3, 4, 4, 4, 4, 3, 3, 5, 3, 2, 2, 2, 2, 2, 4, 6, 4, 5, 4, 4, 4, 4, 4, 5];
 
+/** Extra battles for winning a map boss (Surge-only bosses carry their own, customBosses.js). */
 export function bossBattlePointBonus(bossId) {
-  if (bossId < 0 || bossId >= BOSS_BP_BONUS.length) return 0;
-  return BOSS_BP_BONUS[bossId];
+  if (bossId < 0) return 0;
+  return BOSS_BP_BONUS[bossId] ?? CUSTOM_MAP_BOSSES[bossId]?.bpBonus ?? 0;
 }

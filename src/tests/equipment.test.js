@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { scaledWeaponStats, resolveEquipment, ITEM_TYPE } from '../core/equipment/items.js';
-import { initialSlots, buyStatus, equipStatus, equippedCount, canUnlockSlot, unlockSlot, slotUnlockCost, SLOT } from '../core/equipment/slots.js';
+import { scaledWeaponStats, copyBonus, resolveEquipment, ITEM_TYPE } from '../core/equipment/items.js';
+import { initialSlots, buyStatus, equipStatus, equippedCount, canUnlockSlot, unlockSlot, slotUnlockCost, SLOT, unequipSlot, equipItem, STARTING_ITEM_ID } from '../core/equipment/slots.js';
 
 describe('scaledWeaponStats (Item.as SetItemTimes)', () => {
   it('single copy keeps base values', () => {
@@ -11,6 +11,11 @@ describe('scaledWeaponStats (Item.as SetItemTimes)', () => {
   });
   it('excalibur-like (10000, 230%) x3 -> 11590 / 239', () => {
     expect(scaledWeaponStats({ flat: 10000, percent: 230 }, 3)).toEqual({ plus: 11590, multi: 239 });
+  });
+  it('copyBonus: what the extra copies add (nothing below two)', () => {
+    expect(copyBonus({ flat: 5, percent: 0 }, 1)).toEqual({ plus: 0, multi: 0 });
+    expect(copyBonus({ flat: 5, percent: 0 }, 2)).toEqual({ plus: 20, multi: 2 });
+    expect(copyBonus({ flat: 10000, percent: 230 }, 3)).toEqual({ plus: 1590, multi: 9 });
   });
 });
 
@@ -62,5 +67,28 @@ describe('slots', () => {
     expect(canUnlockSlot(s, 3, 4999)).toBe(false);
     expect(canUnlockSlot(s, 3, 5000)).toBe(true);
     expect(unlockSlot(s, 3)[3]).toBe(SLOT.EMPTY);
+  });
+});
+
+describe('unequip', () => {
+  it('any slot can be emptied, the weapon and armor too (the starting ones included)', () => {
+    const s = equipItem(equipItem(initialSlots(), 0, 5), 2, 7);
+    expect(unequipSlot(s, 2)[2]).toBe(SLOT.EMPTY);
+    expect(unequipSlot(s, 0)[0]).toBe(SLOT.EMPTY);
+    expect(unequipSlot(initialSlots(), 1)[1]).toBe(SLOT.EMPTY); // the starting armor
+    const empty = unequipSlot(s, 3);
+    expect(unequipSlot(empty, 3)).toEqual(empty);
+    expect(STARTING_ITEM_ID).toBe(0);
+  });
+  it('an unequipped weapon / armor stays unequipped across set switches and gives no stats', async () => {
+    const { sanitizeSlots } = await import('../core/equipment/sets.js');
+    const slots = unequipSlot(unequipSlot(initialSlots(), 0), 1);
+    const inventory = { weapons: [1], armors: [1], accessories: [] };
+    const out = sanitizeSlots(slots, inventory, slots);
+    expect(out[0]).toBe(SLOT.EMPTY);
+    expect(out[1]).toBe(SLOT.EMPTY);
+    const eq = resolveEquipment({ weapons: [{ id: 0, flat: 5, percent: 0 }], armors: [{ id: 0, flat: 3, percent: 0 }], accessories: [] }, inventory, out);
+    expect(eq.weapon).toBeNull();
+    expect(eq.armor).toBeNull();
   });
 });

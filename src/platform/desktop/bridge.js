@@ -1,7 +1,10 @@
 /**
  * Platform bridge: wraps the Electron preload API when present, falls back to
- * browser storage during `vite dev` in a plain browser so the game stays playable.
+ * the Capacitor bridge on Android, and to browser storage during `vite dev` in a
+ * plain browser so the game stays playable.
  */
+import { Capacitor } from '@capacitor/core';
+import { androidBridge } from '../android/bridge.js';
 
 const LS_PREFIX = 'surge-rpg:save:';
 
@@ -76,4 +79,10 @@ function browserBridge() {
   };
 }
 
-export const bridge = typeof window !== 'undefined' && window.surge ? window.surge : browserBridge();
+function pickBridge() {
+  if (typeof window !== 'undefined' && window.surge) return window.surge;
+  if (Capacitor.isNativePlatform()) return androidBridge();
+  return browserBridge();
+}
+
+export const bridge = pickBridge();

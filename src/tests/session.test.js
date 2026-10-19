@@ -5,8 +5,8 @@ import bossData from '../data/bosses.json';
 import catalog from '../data/items.json';
 import { createWorld, areaIndexAt, bossHit } from '../core/world/world.js';
 import { createProfile } from '../core/persistence/profile.js';
-import { startRun, startBattle, finishBattle, tickGauge, isGameOver, confirmStatPoints, commitGameOver, heroStats, markMapSeen, bossTouch } from '../core/session/session.js';
-import { runToEnd } from '../core/battle/engine.js';
+import { startRun, startBattle, finishBattle, tickGauge, isGameOver, confirmStatPoints, commitGameOver, heroStats, markMapSeen, bossTouch, fillCurrentMapBonuses } from '../core/session/session.js';
+import { runToEnd, forfeit, isOver } from '../core/battle/engine.js';
 import { battlePointsLeft } from '../core/progression/battlePoints.js';
 import { createSeededRng } from '../core/rng/rng.js';
 import { dangerLevel } from '../core/encounters/gauge.js';
@@ -41,7 +41,8 @@ describe('run loop', () => {
     expect(run.level).toBe(1);
     expect(run.bonuses[1][0]).toBe(25);
     const s = heroStats(run, catalog, profile);
-    expect(s.total).toEqual({ hp: 100, atk: 15, def: 15, speed: 5, luck: 1 }); // starter weapon +5 ATK, starter armor +5 DEF
+    // starter weapon +5 ATK, starter armor +5 DEF; Rook's passive (Quick Draw) +1% AGI
+    expect(s.total).toEqual({ hp: 100, atk: 15, def: 15, speed: 5.05, luck: 1 });
   });
 
   it('the gauge fills while moving and eventually triggers a battle', () => {
@@ -75,6 +76,23 @@ describe('run loop', () => {
       expect(battlePointsLeft(fin.run)).toBe(27);
     }
     expect(fin.run.map.gauge).toBe(0);
+  });
+
+  it('giving up a battle (pause menu) ends it as a defeat', () => {
+    const profile = createProfile();
+    const run = startRun({ profile, characterIndex: 0, hardMode: false, world, catalog });
+    const rng = createSeededRng(11);
+    const sb = startBattle(ctx(profile, run), -1, rng);
+    const given = forfeit(sb.battle);
+    expect(isOver(given)).toBe(true);
+    expect(given.player.hp).toBe(0);
+    expect(forfeit(given)).toBe(given); // already over
+    const fin = finishBattle({ ...ctx(profile, sb.run), battle: given, enemy: sb.enemy, bossId: sb.bossId, drop: sb.drop }, rng);
+    expect(fin.result.won).toBe(false);
+    expect(fin.result.gold).toBe(0);
+    expect(fin.result.drop).toBeNull();
+    expect(fin.profile.loseBattles).toBe(profile.loseBattles + 1);
+    expect(battlePointsLeft(fin.run)).toBe(27); // the provisional BP of a lost battle stay spent
   });
 
   it('a run ends after 30 won battles with no bosses', () => {
@@ -173,6 +191,23 @@ describe('bonus roll', () => {
       expect(t).toBeGreaterThanOrEqual(0);
       expect(t).toBeLessThan(14);
       expect([5, 6, 9, 11]).not.toContain(t);
+    }
+  });
+});
+
+describe('Poção da Fortuna: a bonus in every area of the current map', () => {
+  it('fills the empty areas of the map, keeps the ones with a bonus, leaves other maps alone', () => {
+    const run = startRun({ profile: createProfile(), characterIndex: 0, hardMode: false, world, catalog });
+    const map = world.map(run.map.id);
+    const before = run.bonuses[map.id];
+    const next = fillCurrentMapBonuses(run, world, createProfile(), createSeededRng(7));
+    const after = next.bonuses[map.id];
+    expect(after).toHaveLength(map.areas.length);
+    const used = new Set(map.grid.cells.flat());
+    for (let i = 0; i < after.length; i += 1) {
+      if (before[i] > 0) expect(after[i]).toBe(before[i]); // kept
+      else if (used.has(i)) expect(after[i]).toBeGreaterThan(0); // filled
+      else expect(after[i]).toBe(0); // not on the map
     }
   });
 });

@@ -16,15 +16,15 @@ const world = createWorld(worldData);
 const newRun = (profile = createProfile()) => startRun({ profile, characterIndex: 0, hardMode: false, world, catalog });
 
 describe('equipment sets (GData_ItemEquipSet.as)', () => {
-  it('5 sets: set 1 open, the rest unlock in order for 300k, 1.5M, 2.1M and 4M', () => {
+  it('5 sets: set 1 open, the rest unlock in order for 130k, 1M, 1.46M and 2.2M', () => {
     let run = { ...newRun(), gold: 10_000_000 };
     expect(runSets(run).unlocked).toBe(1);
     const costs = [];
     for (let i = 0; i < 4; i += 1) { costs.push(nextSetCost(run)); run = unlockNextSet(run); }
-    expect(costs).toEqual([300000, 1500000, 2100000, 4000000]);
+    expect(costs).toEqual([130000, 1000000, 1460000, 2200000]);
     expect(runSets(run).unlocked).toBe(5);
     expect(nextSetCost(run)).toBeNull();
-    expect(run.gold).toBe(10_000_000 - 7_900_000);
+    expect(run.gold).toBe(10_000_000 - 4_790_000);
     expect(unlockNextSet({ ...newRun(), gold: 0 }).equipSets.unlocked).toBe(1);
   });
   it('equipping writes into the active set; switching loads another set', () => {
@@ -85,15 +85,23 @@ describe('equipment sets (GData_ItemEquipSet.as)', () => {
 
 describe('sets and slots need the shared base level', () => {
   it('slots and the next set are refused below their base level; the cheat opens or closes them', async () => {
-    const { slotUnlockStatus, EQUIPMENT_SET_UNLOCK_BASE } = await import('../core/equipment/slots.js');
+    const { slotUnlockStatus, EQUIPMENT_SET_UNLOCK_NEED } = await import('../core/equipment/slots.js');
     const { setUnlockStatus } = await import('../core/equipment/sets.js');
     const { cheatSets, cheatLockSlots, cheatUnlockSlots } = await import('../core/session/cheats.js');
     const run = { ...newRun(), gold: 1e12 };
-    expect(slotUnlockStatus(run.slots, 3, 1e12, 0)).toBe('level');
-    expect(slotUnlockStatus(run.slots, 3, 1e12, 1)).toBe('ok');
-    expect(setUnlockStatus(run, EQUIPMENT_SET_UNLOCK_BASE[0] - 1)).toBe('level');
-    expect(unlockNextSet(run, EQUIPMENT_SET_UNLOCK_BASE[0] - 1)).toBe(run);
-    expect(unlockNextSet(run, EQUIPMENT_SET_UNLOCK_BASE[0]).equipSets.unlocked).toBe(2);
+    expect(slotUnlockStatus(run.slots, 3, 1e12, 2, 0)).toBe('level');
+    expect(slotUnlockStatus(run.slots, 3, 1e12, 3, 0)).toBe('ok');
+    expect(slotUnlockStatus(run.slots, 8, 1e12, 6, 0)).toBe('level');
+    expect(slotUnlockStatus(run.slots, 8, 1e12, 7, 0)).toBe('ok');
+    // slots 10 and 11 need both: base level 6 and 3 Slime Kings
+    expect(slotUnlockStatus(run.slots, 10, 1e12, 99, 2)).toBe('level');
+    expect(slotUnlockStatus(run.slots, 10, 1e12, 5, 3)).toBe('level');
+    expect(slotUnlockStatus(run.slots, 11, 1e12, 6, 3)).toBe('ok');
+    const first = EQUIPMENT_SET_UNLOCK_NEED[0].baseLevel;
+    expect(setUnlockStatus(run, first - 1, 0)).toBe('level');
+    expect(unlockNextSet(run, first - 1, 0)).toBe(run);
+    expect(unlockNextSet(run, first, 0).equipSets.unlocked).toBe(2);
+    expect(EQUIPMENT_SET_UNLOCK_NEED.at(-1)).toEqual({ slimeKings: 2 });
     const all = cheatSets(run, true);
     expect(all.equipSets.unlocked).toBe(5);
     const none = cheatSets(switchSet(all, 2), false);

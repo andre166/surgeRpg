@@ -4,28 +4,36 @@
  * No rendering here; the UI stores call these and render the returned state.
  */
 import { computeStats } from '../attributes/stats.js';
+import { heroCurrentPassivePct, rollPassiveShardDrop } from '../progression/passiveShards.js';
 import { resolveEquipment } from '../equipment/items.js';
 import { setupEnemy } from '../battle/enemySetup.js';
 import { createBattle } from '../battle/engine.js';
-import { rollDrop } from '../battle/drops.js';
+import { rollDrop, forceDrop } from '../battle/drops.js';
+import { CHEAT_TOGGLES } from './cheats.js';
 import { applyExp } from '../progression/levels.js';
 import { battlePointsLeft, onEncounterStart, onBattleWon, onBattleLost, bossBattlePointBonus } from '../progression/battlePoints.js';
-import { allocateStatPoints, baseAbilityLevel, characterAbilityLevel, addCharacterExp } from '../progression/characters.js';
+import { allocateStatPoints, baseAbilityLevel, characterAbilityLevel, addCharacterExp, bossLevel } from '../progression/characters.js';
 import { createRun } from '../persistence/profile.js';
 import { areaAt, areaIndexAt, bossWinTeleport, roomBonusValue, bossHit } from '../world/world.js';
-import { classPathOf, classOwned, DEFAULT_CLASS } from '../progression/classes.js';
+import { triggerMapId } from '../world/triggers.js';
+import { classPathOf, classOwned, DEFAULT_CLASS, accountProgress } from '../progression/classes.js';
 import { pickAreaEnemy, mapBossDef, eventBossDef } from '../encounters/enemyPick.js';
 import { rollEventBoss } from '../encounters/eventBoss.js';
-import { bonusType, decrementBonuses, spawnBonusesAfterWin, encodeBonus } from '../encounters/bonus.js';
+import { bonusType, decrementBonuses, spawnBonusesAfterWin, encodeBonus, fillMapBonuses, BONUS_TYPE } from '../encounters/bonus.js';
 import { dangerLevel, advanceGauge } from '../encounters/gauge.js';
 import { ownedCount } from '../equipment/slots.js';
 import { ITEM_TYPE } from '../equipment/items.js';
 import { isBossSetReady, equipBossSet, restoreAfterBoss, runSets, syncActiveSet } from '../equipment/sets.js';
-import { talentPercents, earnTalentPoints, heroTalents, setHeroTalents } from '../progression/talents.js';
-import { relicPercents } from '../crafting.js';
-import { runBuffEffects, tickBuffs } from '../farm.js';
-import { heroEcho, heroEchoMastered, rollEchoDrop, addEcho, gainEchoXp, masteryLevel, echoXp, ECHO_XP } from '../echoes.js';
+import { talentPassive, tpLevel, recordSlimeKingWin } from '../progression/talents.js';
+import { talentTiersOwned } from '../progression/unlocks.js';
+import { relicPercents, rollRelicDrop } from '../crafting.js';
+import { runBuffEffects, tickBuffs, rollCreatureDrop } from '../farm.js';
+import { heroEcho, heroEchoMastered, gainEchoXp, masteryLevel, echoXp, ECHO_XP, rollBossEcho } from '../echoes.js';
 import { mapSlimes, slimeDef } from '../encounters/slimeBosses.js';
+import { slimeKingWins } from '../bestiary.js';
+import { recordModeBattle, recordModeRunEnd } from '../progression/modeStats.js';
+import { heroExtra, rollShardDrop } from '../progression/limitBreak.js';
+import { rollEmblemDrop } from '../progression/classEmblems.js';
 
 /**
  * Derived stats of the run's hero with current equipment.
@@ -38,16 +46,18 @@ export function heroStats(run, catalog, profile, playGemNullified = false) {
   return computeStats({
     base: run.base,
     equipment,
-    character: { index: run.characterIndex, abilityLevel, currentAbilityLevel },
+    character: { index: run.characterIndex, abilityLevel, currentAbilityLevel, extra: heroExtra(profile, run.characterIndex) },
     hardMode: run.hardMode,
     playGem: { gameOverCount: profile.gameOverCount, nullified: playGemNullified },
-    talentPct: talentPercents(heroTalents(profile, run.characterIndex)),
+    talent: talentPassive(tpLevel(profile), talentTiersOwned(profile)),
     classId: run.classId,
     classTier: run.classTier ?? 0,
     classPath: classPathOf(run),
     craftPct: relicPercents(profile, run.characterIndex),
+    heroPct: heroCurrentPassivePct(profile, run.characterIndex),
     echo: heroEchoMastered(profile, run.characterIndex),
     buff: runBuffEffects(run),
+    account: accountProgress(profile, run),
   });
 }
 
@@ -91,6 +101,30 @@ export function refreshRunFromEquipment(run, catalog, profile) {
 export function currentArea(run, world) {
   const map = world.map(run.map.id);
   return areaAt(map, run.map.x, run.map.y);
+}
+
+/**
+ * Poção da Fortuna (farm.js fortune_brew): every empty area of the current map that is really on it
+ * (painted on its grid) gets a bonus, rolled like the original's bonus map consumable
+ * (bonus.js fillMapBonuses); areas that already have one keep it.
+ */
+export function fillCurrentMapBonuses(run, world, profile, rng) {
+  const map = world.map(run.map.id);
+  const before = mapBonuses(run, map.id, map.areas.length);
+  const used = new Set(map.grid.cells.flat());
+  const filled = fillMapBonuses(
+    {
+      bonuses: before,
+      currentIndex: areaIndexAt(map, run.map.x, run.map.y),
+      areaLevels: map.areas.map((a) => a.level),
+      gameOverCount: profile?.gameOverCount ?? 0,
+      hardMode: run.hardMode,
+      mapId: map.id,
+    },
+    rng,
+  );
+  const bonuses = filled.map((v, i) => (used.has(i) ? v : before[i]));
+  return { ...run, bonuses: { ...run.bonuses, [map.id]: bonuses } };
 }
 
 export function currentDanger(run, world) {
@@ -239,9 +273,11 @@ export function startBattle({ run, profile, world, catalog, enemyPools, bossData
 
   const bossAlreadyWon = effectiveBossId >= 0 && (run.bossWinCount[effectiveBossId] ?? 0) >= 1;
   const bonusKind = bType >= 0 && bType <= 8 ? bType : -1;
+  // map bosses and slime kings fight at their own level (enemyDef.level), wherever they are placed;
+  // area enemies and event bosses at the area's
   const enemy = setupEnemy({
     enemy: enemyDef,
-    areaLevel: area.level,
+    areaLevel: enemyDef.level ?? area.level,
     player: stats,
     hardMode: run.hardMode,
     bonus: bonusKind,
@@ -251,7 +287,9 @@ export function startBattle({ run, profile, world, catalog, enemyPools, bossData
   // drop is decided at battle start (granted on win)
   const drop = bossAlreadyWon
     ? null
-    : rollDrop(
+    : run.cheats?.[CHEAT_TOGGLES.ALWAYS_DROP]
+      ? forceDrop(enemy.drops, rng)
+      : rollDrop(
         {
           drops: enemy.drops,
           itemRate: enemy.itemRate,
@@ -266,6 +304,7 @@ export function startBattle({ run, profile, world, catalog, enemyPools, bossData
     enemy,
     hardMode: run.hardMode,
     gold: next.gold,
+    boss: effectiveBossId >= 0 || slimeId >= 0,
   });
   if (effectiveBossId >= 0) profile.bossesSeen[effectiveBossId + (run.hardMode ? 100 : 0)] = 1;
 
@@ -283,7 +322,9 @@ export function finishBattle({ run, profile, battle, enemy, bossId, drop, world,
   // the boss set only lasts for the boss battle
   let next = { ...restoreAfterBoss(run), gold: battle.gold, highestCombo: Math.max(run.highestCombo, battle.highestCombo), highestDamage: Math.max(run.highestDamage, battle.highestDamage) };
   let prof = { ...profile, highestCombo: Math.max(profile.highestCombo, battle.highestCombo), highestDamage: Math.max(profile.highestDamage, battle.highestDamage) };
-  const result = { won, exp: 0, gold: 0, levelsGained: 0, statPointsGained: 0, drop: null, bossId, bpBonus: 0, teleport: null, abilityLevelUp: false, lastBoss: false, talentPoints: 0, echo: null, echoXp: null };
+  // the same, per game mode (Statistics: normal / abyssal tabs)
+  prof = recordModeBattle(prof, run.hardMode, battle, won);
+  const result = { won, exp: 0, gold: 0, levelsGained: 0, statPointsGained: 0, drop: null, bossId, bpBonus: 0, teleport: null, abilityLevelUp: false, lastBoss: false, talentPoints: 0, echoXp: null, echo: null, baseLevelUp: null };
 
   next = tickBuffs(next); // elixir buffs last a number of battles, won or lost
 
@@ -316,16 +357,20 @@ export function finishBattle({ run, profile, battle, enemy, bossId, drop, world,
   if (drop) {
     const key = drop.type === ITEM_TYPE.WEAPON ? 'weapons' : drop.type === ITEM_TYPE.ARMOR ? 'armors' : 'accessories';
     const list = next.inventory[key].slice();
-    list[drop.itemId] = (list[drop.itemId] ?? 0) + 1;
+    const before = list[drop.itemId] ?? 0;
+    list[drop.itemId] = before + 1;
     next.inventory = { ...next.inventory, [key]: list };
-    result.drop = drop;
+    // isNew / count: the result screen celebrates a first copy ("NEW!") or shows how many are owned
+    result.drop = { ...drop, isNew: before === 0, count: before + 1 };
   }
 
-  // slime boss: talent points, and gone until the next run
+  // slime boss: gone until the next run; a new one raises the account's TP level (talents.js)
   if (slime && slime.id >= 0) {
     next.slimesBeaten = { ...next.slimesBeaten, [slime.id]: 1 };
-    prof = setHeroTalents(prof, next.characterIndex, earnTalentPoints(heroTalents(prof, next.characterIndex), slime.talentPoints));
-    result.talentPoints = slime.talentPoints;
+    const rec = recordSlimeKingWin(prof, slime.id);
+    prof = rec.profile;
+    if (rec.levelUp) result.talentPoints = 1;
+    result.tpLevel = tpLevel(prof);
   }
 
   // echo mastery: the hero's equipped echo gains XP for the win
@@ -337,31 +382,54 @@ export function finishBattle({ run, profile, battle, enemy, bossId, drop, world,
     result.echoXp = { id: equippedEcho.id, amount, level: masteryLevel(echoXp(prof, equippedEcho.id)), levelUp: g.levelUp };
   }
 
-  // boss victories (map and event bosses) may grant an Ancestral Echo
-  if (bossId >= 0) {
-    const echoId = rollEchoDrop(prof, rng);
-    if (echoId) {
-      prof = addEcho(prof, echoId);
-      result.echo = echoId;
-    }
-  }
-
   if (bossId >= 0) {
     next.bossWinCount = { ...next.bossWinCount, [bossId]: (next.bossWinCount[bossId] ?? 0) + 1 };
     next.bossBeaten = { ...next.bossBeaten, [bossId]: 1 };
     const key = bossId + (next.hardMode ? 100 : 0);
     const before = baseAbilityLevel(prof.bossWins);
+    const baseBefore = bossLevel(prof.bossWins);
     prof.bossWins = { ...prof.bossWins, [key]: 1 };
     const after = baseAbilityLevel(prof.bossWins);
     result.abilityLevelUp = after > before;
+    // the account's base level (unlocks): { from, to } when this win raised it
+    const baseAfter = bossLevel(prof.bossWins);
+    if (baseAfter > baseBefore) result.baseLevelUp = { from: baseBefore, to: baseAfter };
     if (bossId === 28) result.lastBoss = true;
 
-    const tp = bossWinTeleport(bossId, rng);
+    // stable creatures: the first win of the run over a map boss may drop its creature
+    if (enemy.id === `boss#${bossId}` && (run.bossWinCount[bossId] ?? 0) === 0 && prof.farm) {
+      const cd = rollCreatureDrop(prof.farm, bossId, rng);
+      prof.farm = cd.farm;
+      result.creature = cd.creature;
+    }
+    // echoes some map bosses drop (echoes.js BOSS_ECHO_DROPS): revealed, then bought on the Echoes screen
+    if (enemy.id === `boss#${bossId}`) {
+      const echoDrop = rollBossEcho(prof, bossId, rng, baseAfter, slimeKingWins(prof));
+      prof = echoDrop.profile;
+      result.echo = echoDrop.echo;
+    }
+    // relics some map bosses drop (crafting.js RELIC_DROPS), apart from the item drop: once per account
+    if (enemy.id === `boss#${bossId}`) {
+      const relicDrop = rollRelicDrop(prof, bossId, rng);
+      prof = relicDrop.profile;
+      result.relic = relicDrop.relic;
+    }
+
+    // a boss placed by a trigger with "teleport" (triggers.js parseBossTriggers) sends the hero to
+    // that map's spawn point (atSpawn: the map scene places it, it knows the map art)
+    const triggerTp = map.bosses?.find((b) => b.id === bossId)?.teleport;
+    const triggerDest = triggerTp ? world.map(triggerMapId({ map: triggerTp }, map.id, world)) : null;
+    const tp = triggerDest ? null : bossWinTeleport(bossId, rng);
+    if (triggerDest) {
+      next.map = { id: triggerDest.id, x: triggerDest.w / 2, y: triggerDest.h / 2, gauge: 0, atSpawn: true };
+      result.teleport = { map: triggerDest.id, room: null };
+    }
     if (tp) {
       const dest = world.map(tp.map);
       if (dest) {
         if (tp.room) {
           next.returnTo = { id: next.map.id, x: next.map.x, y: next.map.y };
+          next.roomPotionUsed = false; // a new visit: one threshold potion allowed (farm.js useRoomPotion)
           const roomBonuses = new Array(dest.areas.length).fill(0);
           roomBonuses[0] = roomBonusValue(tp.room, rng);
           next.bonuses = { ...next.bonuses, [dest.id]: roomBonuses };
@@ -372,10 +440,15 @@ export function finishBattle({ run, profile, battle, enemy, bossId, drop, world,
     }
   }
 
-  // leaving the white/black room when its counter is spent
-  if ((next.map.id === 13 || next.map.id === 14) && next.returnTo) {
+  // leaving the white/black room when its counter is spent; threshold potions (farm.js ROOM_POTIONS)
+  // first give their extra battles, one at a time
+  if (inSecretRoom(next)) {
     const roomTable = next.bonuses[next.map.id] ?? [0];
-    if (roomTable[0] === 0) {
+    if (roomTable[0] === 0 && (next.roomExtra ?? 0) > 0) {
+      const type = next.map.id === 13 ? BONUS_TYPE.IN_WHITE_ROOM : BONUS_TYPE.IN_BLACK_ROOM;
+      next.bonuses = { ...next.bonuses, [next.map.id]: [encodeBonus(type, 1), ...roomTable.slice(1)] };
+      next.roomExtra -= 1;
+    } else if (roomTable[0] === 0) {
       const back = world.map(next.returnTo.id);
       next.map = { id: back.id, x: next.returnTo.x, y: next.returnTo.y, gauge: 0 };
       next.returnTo = null;
@@ -402,8 +475,38 @@ export function finishBattle({ run, profile, battle, enemy, bossId, drop, world,
       ),
     };
   }
+  // Limit Break shards (progression/limitBreak.js): a map boss's first win of the run may drop some;
+  // rolled last so the teleport and bonus rolls above keep their order
+  if (bossId >= 0 && enemy.id === `boss#${bossId}` && (run.bossWinCount[bossId] ?? 0) === 0) {
+    const sd = rollShardDrop(prof, rng, { hardMode: next.hardMode, abilityLevel: baseAbilityLevel(prof.bossWins) });
+    prof = sd.profile;
+    if (sd.shards) result.shards = sd.shards;
+    // Passive Shards (progression/passiveShards.js): abyssal mode only, no roll
+    const pd = rollPassiveShardDrop(prof, { hardMode: next.hardMode, lastBoss: result.lastBoss });
+    prof = pd.profile;
+    if (pd.shards) result.passiveShards = pd.shards;
+  }
+  // Class Emblems (progression/classEmblems.js), they buy the classes: the rare monsters (white / black
+  // rooms, area level 0, like the bestiary's 'rare') may drop some, rolled apart from the item drop
+  const enemyKey = String(enemy.id ?? '');
+  if (bossId < 0 && !enemyKey.startsWith('event#') && !enemyKey.startsWith('slime#') && map.areas[areaIdx]?.level === 0) {
+    const ed = rollEmblemDrop(prof, rng);
+    prof = ed.profile;
+    if (ed.emblems) result.emblems = ed.emblems;
+  }
   next.map = { ...next.map, gauge: 0 };
   return { run: next, profile: prof, result };
+}
+
+/** Is the hero in a secret room (white 13 / black 14), sent there by its event boss? */
+export function inSecretRoom(run) {
+  return (run?.map?.id === 13 || run?.map?.id === 14) && !!run.returnTo;
+}
+
+/** Battles left in the secret room: its counter plus the threshold potions drunk (0 outside one). */
+export function roomBattlesLeft(run) {
+  if (!inSecretRoom(run)) return 0;
+  return (run.bonuses?.[run.map.id]?.[0] ?? 0) % 10 + (run.roomExtra ?? 0);
 }
 
 export function isGameOver(run) {
@@ -423,8 +526,10 @@ export function confirmStatPoints(run, staged) {
  * `stats` (heroStats of the final hero) feeds the best-level snapshot shown in Statistics.
  */
 export function commitGameOver(run, profile, stats = null) {
-  const p = { ...profile };
-  if (stats && (run.level > p.highestLevel || p.highestLevel === 0)) p.highestRecord = highestRecord(run, stats);
+  const record = stats ? highestRecord(run, stats) : null;
+  // per game mode first (Statistics: normal / abyssal tabs), then the global records
+  const p = recordModeRunEnd({ ...profile }, run, record);
+  if (record && (run.level > p.highestLevel || p.highestLevel === 0)) p.highestRecord = record;
   p.gameOverCount += 1;
   p.inventory = { weapons: run.inventory.weapons.slice(), armors: run.inventory.armors.slice(), accessories: run.inventory.accessories.slice() };
   p.slots = run.slots.slice();

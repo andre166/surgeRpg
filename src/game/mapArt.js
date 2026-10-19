@@ -8,6 +8,8 @@
  * The result is stretched over the whole map, so rules (areas, bosses, exits) keep the
  * original map size. Keys are map ids; maps without art keep the procedural terrain.
  */
+import namedMaps from '../data/namedMaps.json';
+
 const MAP_ART = {
   1: 'map1',
   2: 'map2',
@@ -15,6 +17,8 @@ const MAP_ART = {
   4: 'map4',
   5: 'map5',
 };
+// maps with no original counterpart (src/data/namedMaps.json): their art is the file they are named after
+for (const m of namedMaps.maps) MAP_ART[m.id] = m.art;
 
 /** Pixel size of one map tile in the sprite art when the export does not say (editor's PACK_BASE_TILE). */
 const DEFAULT_BASE_TILE = 32;
@@ -25,10 +29,16 @@ export const mapArtTilesetKey = (mapId, firstGid) => `map-art-tiles-${mapId}-${f
 export const mapArtSpriteKey = (mapId, asset, frame) => `map-art-sprite-${mapId}-${asset}-${frame}`;
 export const mapArtUrl = (mapId) => (MAP_ART[mapId] ? `${import.meta.env.BASE_URL}assets/maps/${MAP_ART[mapId]}.json` : null);
 
-/** Visible layers bottom to top ({ id, kind, opacity }); files without a layer stack have ground + decor. */
+/**
+ * Layers bottom to top ({ id, kind, opacity }): the visible tile and sprite layers, and the area
+ * layer (where the game draws the area borders and labels; kept even when hidden in the editor,
+ * which hides only its overlay). Files without a layer stack have ground + decor.
+ */
 export function mapArtLayers(art) {
   const stack = Array.isArray(art?.layerStack) ? art.layerStack : [{ id: 'ground', kind: 'tile' }, { id: 'decor', kind: 'tile' }];
-  return stack.filter((l) => l.visible !== false && (l.kind === 'tile' || l.kind === 'sprite')).map((l) => ({ id: l.id, kind: l.kind, opacity: l.opacity ?? 1 }));
+  return stack
+    .filter((l) => l.kind === 'area' || (l.visible !== false && (l.kind === 'tile' || l.kind === 'sprite')))
+    .map((l) => ({ id: l.id, kind: l.kind, opacity: l.opacity ?? 1 }));
 }
 
 /**

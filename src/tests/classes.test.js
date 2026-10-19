@@ -13,41 +13,42 @@ describe('hero classes', () => {
   it('no class keeps the original numbers', () => {
     expect(stats(null).total).toEqual(base);
   });
-  it('warrior: +20% HP, +10% ATK, +15% DEF, -10% AGI, heavier crits and drain', () => {
+  it('warrior: +4% HP, +2% ATK, +3% DEF (no negative stats), no passive', () => {
     const s = stats('warrior');
-    expect(s.total.hp).toBeCloseTo(120);
-    expect(s.total.atk).toBeCloseTo(110);
-    expect(s.total.def).toBeCloseTo(115);
-    expect(s.total.speed).toBeCloseTo(90);
-    expect(s.modifiers.critDamageMultiplier).toBeCloseTo(1.3);
-    expect(s.modifiers.drainSmall).toBe(true);
+    expect(s.total.hp).toBeCloseTo(104);
+    expect(s.total.atk).toBeCloseTo(102);
+    expect(s.total.def).toBeCloseTo(103);
+    expect(s.total.speed).toBeCloseTo(100);
+    expect(s.modifiers.critDamageMultiplier).toBe(1);
+    expect(s.modifiers.drainSmall).toBeFalsy();
   });
-  it('thief: +25% AGI and LUCK, -10% HP, better crit and combo rates', () => {
+  it('thief: +5% AGI and LUCK (no negative stats), no passive', () => {
     const s = stats('thief');
-    expect(s.total.speed).toBeCloseTo(125);
-    expect(s.total.luck).toBeCloseTo(125);
-    expect(s.total.hp).toBeCloseTo(90);
-    expect(s.modifiers.critRatePlus).toBeCloseTo(0.05);
-    expect(s.modifiers.comboRatePlus).toBeCloseTo(0.05);
+    expect(s.total.speed).toBeCloseTo(105);
+    expect(s.total.luck).toBeCloseTo(105);
+    expect(s.total.hp).toBeCloseTo(100);
+    expect(s.modifiers.critRatePlus).toBe(0);
+    expect(s.modifiers.comboRatePlus).toBe(0);
   });
-  it('mage: +30% ATK, -15% DEF, -10% HP, +20% EXP and a guaranteed first crit', () => {
+  it('mage: +6% ATK (no negative stats), no passive', () => {
     const s = stats('mage');
-    expect(s.total.atk).toBeCloseTo(130);
-    expect(s.total.def).toBeCloseTo(85);
-    expect(s.modifiers.expMultiplier).toBeCloseTo(1.2);
-    expect(s.modifiers.forcedCritHits).toBe(1);
+    expect(s.total.atk).toBeCloseTo(106);
+    expect(s.total.def).toBeCloseTo(100);
+    expect(s.modifiers.critRatePlus).toBe(0);
+    expect(s.modifiers.expMultiplier).toBeCloseTo(1);
+    expect(s.modifiers.forcedCritHits).toBe(0);
   });
 });
 
 describe('class trees', () => {
-  it('each class branches into 3 subclasses at LV 200, each with a line of 3 specialisations', () => {
+  it('each class branches into 3 subclasses at LV 10,000, each with a line of 3 specialisations', () => {
     for (const c of CLASSES) {
       const subs = classChildren(c.root.id);
       expect(subs).toHaveLength(3);
       for (const sub of subs) {
-        expect(sub.minLevel).toBe(200);
+        expect(sub.minLevel).toBe(10000);
         const line = classLine(sub.id);
-        expect(line.map((n) => n.minLevel)).toEqual([1000, 2000, 5000]);
+        expect(line.map((n) => n.minLevel)).toEqual([40000, 75000, 180000]);
         expect(classChildren(sub.id)).toHaveLength(1); // no choice after the subclass
         expect(classChildren(line[2].id)).toHaveLength(0);
       }
@@ -58,8 +59,8 @@ describe('class trees', () => {
   it('each step of a line is stronger than the one before', () => {
     const [a, b, c] = classLine('trickster');
     expect(b.pct.luck).toBeGreaterThan(a.pct.luck); // scaled positive percents: pirate .75 > illusionist .7
-    expect(classNode('gambler').pct.luck).toBeCloseTo(1.5);
-    expect(classNode('gambler').mods.critRate).toBeCloseTo(0.27);
+    expect(classNode('gambler').pct.luck).toBeCloseTo(0.06); // 0.2 x 1.5 (3rd step) x 0.2 (CLASS_STAT_FACTOR)
+    expect(classNode('shadow').mods.critRate).toBeCloseTo(0.0525); // 0.14 x 1.5 x 0.25 (CLASS_MOD_FACTOR)
     expect(c.minLevel).toBeGreaterThan(b.minLevel);
   });
   it('every class has a name in both languages', async () => {
@@ -75,16 +76,16 @@ describe('class trees', () => {
 
 describe('class promotion', () => {
   it('promotes into the chosen subclass, then along its line in order', () => {
-    let run = { classId: 'thief', classTier: 0, classPath: [], level: 199 };
+    let run = { classId: 'thief', classTier: 0, classPath: [], level: 9999 };
     expect(canPromoteClass(run)).toBe(false);
     expect(promoteClass(run, 'hunter')).toBe(run);
-    run = { ...run, level: 200 };
+    run = { ...run, level: 10000 };
     expect(nextClassOptions(run).map((n) => n.id)).toEqual(['rogue', 'hunter', 'trickster']);
     run = promoteClass(run, 'hunter');
     expect(run.classPath).toEqual(['hunter']);
     expect(run.classTier).toBe(1);
-    expect(canPromoteClass(run)).toBe(false); // the line starts at LV 1000
-    run = { ...run, level: 5000 };
+    expect(canPromoteClass(run)).toBe(false); // the line starts at LV 40,000
+    run = { ...run, level: 180000 };
     expect(nextClassOptions(run).map((n) => n.id)).toEqual(['sharpshooter']); // no choice
     expect(promoteClass(run, 'scout')).toBe(run); // cannot skip ahead
     run = promoteClass(promoteClass(promoteClass(run)));
@@ -95,16 +96,16 @@ describe('class promotion', () => {
   });
   it('the chosen node replaces the base bonuses', () => {
     const s = computeStats({ base, equipment: null, character: { index: 0 }, classId: 'thief', classPath: ['hunter', 'sharpshooter', 'scout'] });
-    expect(s.total.speed).toBeCloseTo(175); // scout, 2nd step: +60% x 1.25
-    expect(s.modifiers.expMultiplier).toBeCloseTo(1.3125);
-    expect(s.modifiers.maxBattlePoints).toBe(33);
+    expect(s.total.def).toBeCloseTo(112); // scout (hunter: crit + defense), 2nd step: 0.48 x 1.25 x 0.2
+    expect(s.modifiers.expMultiplier).toBeCloseTo(1);
+    expect(s.modifiers.maxBattlePoints).toBe(30);
   });
   it('runs promoted before the trees keep their former path (tier -> knight/paladin, rogue/assassin, sorcerer/archmage)', () => {
     expect(classPathOf({ classId: 'thief', classTier: 2 })).toEqual(['rogue', 'assassin']);
     const s = computeStats({ base, equipment: null, character: { index: 0 }, classId: 'thief', classTier: 2 });
-    expect(s.total.speed).toBeCloseTo(160);
-    expect(s.modifiers.critRatePlus).toBeCloseTo(0.12);
-    expect(s.modifiers.forcedCritHits).toBe(1);
+    expect(s.total.speed).toBeCloseTo(109);
+    expect(s.modifiers.critRatePlus).toBeCloseTo(0.03);
+    expect(s.modifiers.forcedCritHits).toBe(0);
     expect(classTierDef('warrior', 1).id).toBe('knight');
   });
   it('runs without a class cannot promote', () => {
@@ -115,18 +116,18 @@ describe('class promotion', () => {
 describe('auto class promotion', () => {
   it('follows the saved branch: into the subclass, then up its line as the level allows', async () => {
     const { autoPromoteClass } = await import('../core/progression/classes.js');
-    let run = { classId: 'thief', classTier: 0, classPath: [], level: 150 };
-    expect(autoPromoteClass(run, 'trickster')).toBe(run); // LV 200 not reached
-    run = autoPromoteClass({ ...run, level: 2500 }, 'trickster');
+    let run = { classId: 'thief', classTier: 0, classPath: [], level: 5000 };
+    expect(autoPromoteClass(run, 'trickster')).toBe(run); // LV 10,000 not reached
+    run = autoPromoteClass({ ...run, level: 100000 }, 'trickster');
     expect(run.classPath).toEqual(['trickster', 'illusionist', 'pirate']);
-    run = autoPromoteClass({ ...run, level: 9000 }, 'trickster');
+    run = autoPromoteClass({ ...run, level: 1e6 }, 'trickster');
     expect(run.classPath).toEqual(['trickster', 'illusionist', 'pirate', 'gambler']);
   });
   it('leaves runs on another branch, without a branch, or with a foreign branch alone', async () => {
     const { autoPromoteClass } = await import('../core/progression/classes.js');
-    const other = { classId: 'thief', classPath: ['hunter'], classTier: 1, level: 9000 };
+    const other = { classId: 'thief', classPath: ['hunter'], classTier: 1, level: 1e6 };
     expect(autoPromoteClass(other, 'trickster')).toBe(other);
-    const fresh = { classId: 'thief', classPath: [], classTier: 0, level: 9000 };
+    const fresh = { classId: 'thief', classPath: [], classTier: 0, level: 1e6 };
     expect(autoPromoteClass(fresh, null)).toBe(fresh);
     expect(autoPromoteClass(fresh, 'brawler')).toBe(fresh); // a warrior branch
   });
@@ -145,5 +146,117 @@ describe('class reset', () => {
     expect(r.classTier).toBe(0);
     expect(r.gold).toBe(5);
     expect(classResetStatus(r)).toBe('base');
+  });
+});
+
+describe('class stats are a small help', () => {
+  it('no class node has a negative stat, and none gives more than +30%', () => {
+    const all = CLASSES.flatMap((c) => [c.root, ...classChildren(c.id).flatMap((s) => [s, ...classLine(s.id)])]);
+    expect(all).toHaveLength(39);
+    for (const n of all) for (const v of Object.values(n.pct)) { expect(v).toBeGreaterThanOrEqual(0); expect(v).toBeLessThanOrEqual(0.3); }
+  });
+});
+
+describe('class passives are a small help (about one Inflation RPG ring at most)', () => {
+  it('caps rates near one ring; every passive is chance based (no fixed bonus)', () => {
+    const all = CLASSES.flatMap((c) => [c.root, ...classChildren(c.id).flatMap((s) => [s, ...classLine(s.id)])]);
+    for (const { mods } of all) {
+      expect(mods.critDamage ?? 0).toBeLessThanOrEqual(0.3); // Critical Damage Ring: +0.2
+      expect(mods.critRate ?? 0).toBeLessThanOrEqual(0.08); // Critical Rate Ring: +8%
+      expect(mods.combo ?? 0).toBeLessThanOrEqual(0.09); // Combo Rate Ring: +9%
+      expect(Object.keys(mods).every((k) => ['critRate', 'combo', 'critDamage', 'deathGuard', 'growth'].includes(k))).toBe(true);
+      expect(mods.deathGuard ?? 0).toBeLessThanOrEqual(1);
+    }
+  });
+});
+
+describe('adventurer line: luck growing with the account', () => {
+  it('each step adds a source, each source is capped', async () => {
+    const { classGrowth, accountProgress } = await import('../core/progression/classes.js');
+    const none = { wins: 0, species: 0, runs: 0, slimeKings: 0 };
+    const some = { wins: 1499, species: 20, runs: 30, slimeKings: 3 };
+    const huge = { wins: 1e9, species: 1e9, runs: 1e9, slimeKings: 1e9 };
+    expect(classGrowth(classNode('brawler'), none).pct).toBe(0);
+    expect(classGrowth(classNode('brawler'), { wins: 500 }).pct).toBeCloseTo(0.01); // 500 wins
+    expect(classGrowth(classNode('brawler'), some).pct).toBeCloseTo(0.015); // growth.cap
+    expect(classGrowth(classNode('berserker'), some).pct).toBeCloseTo(0.025); // cap
+    expect(classGrowth(classNode('monk'), some).pct).toBeCloseTo(0.04); // cap
+    expect(classGrowth(classNode('barbarian'), some).pct).toBeCloseTo(0.045); // cap
+    expect(classGrowth(classNode('barbarian'), huge).pct).toBeCloseTo(0.045);
+    expect(classGrowth(classNode('knight'), huge).pct).toBe(0);
+    // slimeKings is the SK: different Slime Kings beaten (4 wins over the same one count once)
+    const p = { winBattles: 7, gameOverCount: 2, slimeKingsBeaten: { 1: 1, 2: 1 }, bestiary: { a: { defeated: 1 }, b: { seen: 3, defeated: 0 }, 'slime#1': { defeated: 4 } } };
+    expect(accountProgress(p, { battlesUsed: 12 })).toEqual({ wins: 7, species: 1, runs: 2, slimeKings: 2, bp: 12, bosses: 0 });
+    const base = { hp: 100, atk: 10, def: 10, speed: 5, luck: 100 };
+    const s = computeStats({ base, equipment: null, character: { index: 0 }, classId: 'warrior', classPath: ['brawler'], account: some });
+    expect(s.total.luck).toBeCloseTo(100 * (1 + 0.15 * 0.2 + 0.015));
+  });
+});
+
+describe('knight line and the class lethal-hit guard', () => {
+  it('knight HP halved, rune knight HP and DEF halved', () => {
+    expect(classNode('knight').pct.hp).toBeCloseTo(0.045);
+    expect(classNode('rune_knight').pct.hp).toBeCloseTo(0.0825); // 0.275 x 1.5 x 0.2
+    expect(classNode('rune_knight').pct.def).toBeCloseTo(0.09);
+  });
+  it('guard: knight line 4 / 8.5 / 11 / 14.5%, others 13.5%, only once per battle', async () => {
+    const { createBattle, step, PHASE } = await import('../core/battle/engine.js');
+    const { createSequenceRng } = await import('../core/rng/rng.js');
+    const { CLASS_GUARD_CHANCE } = await import('../core/progression/classes.js');
+    expect(CLASS_GUARD_CHANCE).toBeCloseTo(0.45 * 0.3);
+    const base = { hp: 100, atk: 10, def: 10, speed: 5, luck: 1 };
+    const s = computeStats({ base, equipment: null, character: { index: 0 }, classId: 'warrior', classPath: ['knight'] });
+    expect(s.modifiers.classGuard).toBeCloseTo(0.04); // knight
+    expect(['knight', 'paladin', 'guardian', 'rune_knight'].map((id) => classNode(id).mods.deathGuard)).toEqual([0.04, 0.085, 0.11, 0.145]);
+    expect(classNode('cleric').mods.deathGuard).toBeCloseTo(CLASS_GUARD_CHANCE); // other classes keep 13.5%
+    expect(s.modifiers.deathGuard).toBe(0); // the accessories' guard is untouched
+    let b = createBattle({ player: { maxHp: 100, atk: 10, def: 10, modifiers: s.modifiers }, enemy: { hp: 100, atk: 1e9, skills: [] } });
+    const hit = (st) => step({ ...st, phase: PHASE.ENEMY_TURN, player: { ...st.player, hp: 50 } }, createSequenceRng([0]));
+    const first = hit(b);
+    expect(first.state.player.hp).toBe(1);
+    expect(first.state.classGuardUsed).toBe(true);
+    const second = hit(first.state);
+    expect(second.state.player.hp).toBe(0);
+  });
+});
+
+describe('fighter line: ATK growing with battles, BP, Slime Kings and bosses', () => {
+  it('each step adds a source; BP counts the current run', async () => {
+    const { classGrowth } = await import('../core/progression/classes.js');
+    const a = { wins: 1000, bp: 10, slimeKings: 2, bosses: 4 };
+    expect(classGrowth(classNode('fighter'), a)).toEqual({ stat: 'atk', pct: 0.02 });
+    expect(classGrowth(classNode('champion'), a).pct).toBeCloseTo(0.04); // + 10 BP
+    expect(classGrowth(classNode('gladiator'), a).pct).toBeCloseTo(0.06); // + 2 Slime Kings
+    expect(classGrowth(classNode('weapon_master'), a).pct).toBeCloseTo(0.08); // + base level 4
+    expect(classGrowth(classNode('weapon_master'), { wins: 1e9, bp: 1e9, slimeKings: 1e9, bosses: 1e9 }).pct).toBeCloseTo(0.09); // growth.cap
+  });
+  it('knight line grows in order: knight < paladin < guardian < rune knight', () => {
+    const sum = (id) => Object.values(classNode(id).pct).reduce((s, v) => s + v, 0);
+    expect(sum('knight')).toBeLessThan(sum('paladin'));
+    expect(sum('paladin')).toBeLessThan(sum('guardian'));
+    expect(sum('guardian')).toBeLessThan(sum('rune_knight'));
+  });
+});
+
+describe('fighter line ATK stays a small help', () => {
+  it('fixed ATK + full growth: 6 / 9 / 12 / 15% along the line, never above 15%', async () => {
+    const { classGrowth } = await import('../core/progression/classes.js');
+    const max = { wins: 1e9, bp: 1e9, slimeKings: 1e9, bosses: 1e9, species: 1e9, runs: 1e9 };
+    const total = (id) => classNode(id).pct.atk + classGrowth(classNode(id), max).pct;
+    expect(['fighter', 'champion', 'gladiator', 'weapon_master'].map((id) => +total(id).toFixed(4))).toEqual([0.06, 0.09, 0.12, 0.15]);
+  });
+});
+
+describe('thief branches', () => {
+  it('rogue = crit + agility, hunter = crit + defense, trickster = luck; 6 / 9 / 12 / 15% along each line', async () => {
+    const { classGrowth } = await import('../core/progression/classes.js');
+    const max = { wins: 1e9, bp: 1e9, slimeKings: 1e9, bosses: 1e9, species: 1e9, runs: 1e9 };
+    const line = (sub, stat) => [sub, ...classLine(sub).map((n) => n.id)].map((id) => +(classNode(id).pct[stat] + classGrowth(classNode(id), max).pct).toFixed(4));
+    expect(line('rogue', 'speed')).toEqual([0.06, 0.09, 0.12, 0.15]);
+    expect(line('hunter', 'def')).toEqual([0.06, 0.09, 0.12, 0.15]);
+    expect(line('trickster', 'luck')).toEqual([0.06, 0.09, 0.12, 0.15]);
+    for (const id of ['rogue', 'shadow', 'hunter', 'beastmaster']) expect(classNode(id).mods.critRate).toBeGreaterThan(0);
+    // the trickster line is the luck class: above the warrior's adventurer at every step
+    expect(line('brawler', 'luck')).toEqual([0.045, 0.065, 0.09, 0.12]);
   });
 });

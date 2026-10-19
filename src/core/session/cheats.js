@@ -5,12 +5,14 @@
 import { expForLevel } from '../progression/expTable.js';
 import { applyExp } from '../progression/levels.js';
 import { SLOT } from '../equipment/slots.js';
-import { runSets, setUnlockedSets } from '../equipment/sets.js';
+import { runSets, setUnlockedSets, sanitizeSlots } from '../equipment/sets.js';
+import { mapSlimes } from '../encounters/slimeBosses.js';
 
 /** Toggles kept on the run: checked by the store on every battle / step. */
 export const CHEAT_TOGGLES = Object.freeze({
   INFINITE_BP: 'infiniteBp',
   NO_ENCOUNTERS: 'noEncounters',
+  ALWAYS_DROP: 'alwaysDrop', // every enemy with a drop table drops an item (to test the loot reveal)
 });
 
 function flag(run) {
@@ -71,6 +73,20 @@ export function cheatAllItems(run, catalog) {
   });
 }
 
+/**
+ * Removes every item dropped / bought: only the starting weapon and armor stay. The equipped slots
+ * and every set drop what is gone (weapon / armor back to the starting ones, accessories emptied).
+ */
+export function cheatRemoveItems(run) {
+  const inventory = { weapons: [1], armors: [1], accessories: [] };
+  const slots = sanitizeSlots(run.slots, inventory, run.slots);
+  const es = runSets(run);
+  const equipSets = { ...es, sets: es.sets.map((s) => sanitizeSlots(s, inventory, run.slots)) };
+  const next = { ...run, inventory, slots, equipSets };
+  if (run.slotsBeforeBoss) next.slotsBeforeBoss = sanitizeSlots(run.slotsBeforeBoss, inventory, run.slotsBeforeBoss);
+  return flag(next);
+}
+
 export function cheatToggle(run, key) {
   const cheats = { ...(run.cheats ?? {}), [key]: !run.cheats?.[key] };
   return flag({ ...run, cheats });
@@ -88,4 +104,21 @@ export function cheatMaxStats(run) {
 /** Ends the run: spends every BP and turns Infinite BP off so the game over sticks. */
 export function cheatDie(run) {
   return flag({ ...run, battlesUsed: run.maxBattlePoints, cheats: { ...(run.cheats ?? {}), [CHEAT_TOGGLES.INFINITE_BP]: false } });
+}
+
+/**
+ * Brings back the map bosses and slime kings of `map` beaten this run: they stand on the map again
+ * and drop items again (their win count for the run is cleared too). Account progress (base level,
+ * bestiary, Slime King victories) is kept.
+ */
+export function cheatRespawnBosses(run, map) {
+  const bossBeaten = { ...run.bossBeaten };
+  const bossWinCount = { ...run.bossWinCount };
+  for (const b of map.bosses ?? []) {
+    delete bossBeaten[b.id];
+    delete bossWinCount[b.id];
+  }
+  const slimesBeaten = { ...(run.slimesBeaten ?? {}) };
+  for (const s of mapSlimes(map)) delete slimesBeaten[s.id];
+  return flag({ ...run, bossBeaten, bossWinCount, slimesBeaten });
 }
